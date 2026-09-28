@@ -1,7 +1,7 @@
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const jsQR = require('jsqr');
-const QR = require('../../static/js/qr.js');
+const QR = require('../../web/js/qr.js');
 
 const scale = 6, margin = 4;
 function toRGBA(q) {

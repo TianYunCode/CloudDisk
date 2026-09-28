@@ -98,7 +98,7 @@ RUN ldconfig
 WORKDIR /app
 # 三个可执行文件生成在源码根 (CMAKE_RUNTIME_OUTPUT_DIRECTORY=../)
 COPY --from=builder /app/server /app/UserService /app/backup /app/
-COPY --from=builder /app/static /app/static
+COPY --from=builder /app/web /app/web
 COPY --from=builder /app/scripts /app/scripts
 COPY --from=builder /app/config.json /app/config.json
 COPY docker/entrypoint.sh /app/entrypoint.sh

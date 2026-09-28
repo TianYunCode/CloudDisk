@@ -551,18 +551,18 @@ void CloudiskServer::register_modules()
 // ----- 静态资源与页面 ----------------------------------------------------------
 void CloudiskServer::register_static_resources_module()
 {
-    // 前端整套资源
-    m_server.Static("/static", "static");
+    // 前端整套资源 (URL 前缀 /static 保持不变, 磁盘根目录为 web/)
+    m_server.Static("/static", "web");
 
     // 页面入口
     m_server.GET("/", [](const HttpReq*, HttpResp* resp) {
-        resp->File("static/index.html");
+        resp->File("web/index.html");
     });
     m_server.GET("/app", [](const HttpReq*, HttpResp* resp) {
-        resp->File("static/app.html");
+        resp->File("web/app.html");
     });
     m_server.GET("/share.html", [](const HttpReq*, HttpResp* resp) {
-        resp->File("static/share.html");
+        resp->File("web/share.html");
     });
     // 健康检查
     m_server.GET("/healthz", [](const HttpReq*, HttpResp* resp) {

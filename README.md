@@ -195,12 +195,14 @@ CloudDisk/
 ├── UserService.*          # 用户微服务 (srpc + protobuf)
 ├── CryptoUtil.*           # 加盐哈希 / JWT
 ├── OssManager.* / backup.cpp  # OSS 备份消费者
-├── static/                # 前端 (index.html / app.html / css / js)
+├── web/                   # Web 前端 (index.html / app.html / share.html / css / js)
+├── app/                   # 移动端占位：android/ ios/ (仅 README，Web 稳定后实现)
 ├── scripts/               # init_db.sql / migrations/ / start.sh / stop.sh / oss.env.example
 ├── Dockerfile / docker-compose.yml / docker/  # 容器化一键部署
 ├── .github/workflows/ci.yml   # 持续集成
 ├── tests/                 # 集成测试与 e2e
-└── docs/API.md            # 接口文档
+├── docs/API.md            # 接口文档
+└── docs/ARCHITECTURE.md   # 架构与目录设计蓝图（分层 / 设计模式 / 迁移计划）
 ```
 
 ---
