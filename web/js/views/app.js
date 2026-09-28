@@ -232,16 +232,13 @@
   }
 
   function renderPager() {
-    const pages = Math.ceil(state.total / PAGE_SIZE) || 1;
+    const pages = window.CV.Pager.pageCount(state.total, PAGE_SIZE);
     if (pages <= 1) return;
-    const from = state.page * PAGE_SIZE + 1;
-    const to = Math.min(state.total, (state.page + 1) * PAGE_SIZE);
-    let btns = '';
-    for (let p = 0; p < pages; p++)
-      btns += '<button class="btn btn-sm ' + (p === state.page ? 'btn-primary' : 'btn-ghost') + '" data-page="' + p + '">' + (p + 1) + '</button>';
+    const range = window.CV.Pager.pageRange(state.total, state.page, PAGE_SIZE);
+    const btns = window.CV.Pager.pageButtons(pages, state.page);
     const pager = document.createElement('div');
     pager.className = 'pager';
-    pager.innerHTML = '<span class="info">显示文件 ' + from + '–' + to + ' / 共 ' + state.total + ' 项</span><div class="pages">' + btns + '</div>';
+    pager.innerHTML = window.CV.Pager.infoHtml(range, state.total) + '<div class="pages">' + btns + '</div>';
     $('listExtra').appendChild(pager);
     pager.querySelectorAll('[data-page]').forEach(b => b.onclick = () => { state.page = +b.dataset.page; clearSelection(); loadList(); });
   }
