@@ -28,6 +28,7 @@
 
 #include "CryptoUtil.h"
 #include "User.h"
+#include "BlobStore.h"
 
 // ----- 运行期配置 (启动时由 register_modules 从 Config 读取一次) -----------------
 extern std::string g_mysql_url;
@@ -86,6 +87,7 @@ bool read_file_all(const std::string& path, std::string& out);
 std::set<int> list_uploaded_chunks(const std::string& dir);
 void remove_upload_dir(const std::string& dir);
 bool write_blob_if_absent(const std::string& hash, const std::string& content);
+std::string blob_path(const std::string& hash);   // = blob_store().path_of(hash)
 void publish_oss_backup(const std::string& hash);
 bool discover_userservice(std::string& ip, unsigned short& port);
 

@@ -321,7 +321,7 @@ void CloudiskServer::register_version_module()
             long long curSize = (long long)row[1].as_ulonglong();
             auto tgtHash = std::make_shared<string>(row[2].as_string());
             long long tgtSize = (long long)row[3].as_ulonglong();
-            if (!file_exists(g_blob_dir + "/" + *tgtHash)) { api::fail(resp, 410, 410, "该版本内容已被回收, 无法恢复"); return; }
+            if (!blob_store().exists(*tgtHash)) { api::fail(resp, 410, 410, "该版本内容已被回收, 无法恢复"); return; }
             push_mysql(series_of(t), usage_quota_sql(uid), [resp, su, sfid, curHash, curSize, tgtHash, tgtSize](WFMySQLTask* tq) {
                 long long used = 0, quota = g_user_quota;
                 if (mysql_ok(tq)) { MySQLResultCursor c2{ tq->get_resp() }; std::vector<MySQLCell> r2;
@@ -358,7 +358,7 @@ void CloudiskServer::register_version_module()
             if (!mysql_ok(t)) { api::fail(resp, 500, 500, "下载失败"); return; }
             MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
             if (!c.fetch_row(row)) { api::fail(resp, 404, 404, "版本不存在"); return; }
-            string blob = g_blob_dir + "/" + row[0].as_string();
+            string blob = blob_path(row[0].as_string());
             string fname = row[1].as_string();
             if (!file_exists(blob)) { api::fail(resp, 404, 404, "版本内容缺失"); return; }
             g_metrics.downloads++; g_metrics.download_bytes += (long long)file_size_of(blob);

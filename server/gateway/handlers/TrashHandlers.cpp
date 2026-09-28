@@ -271,7 +271,7 @@ void CloudiskServer::register_trash_module()
                         int removed = 0;
                         for (auto& h : *hashes) {
                             if (alive.count(h)) continue;
-                            string blob = g_blob_dir + "/" + h;
+                            string blob = blob_path(h);
                             if (file_exists(blob) && unlink(blob.c_str()) == 0) ++removed;
                         }
                         api::ok(resp, {{"blobsRemoved", removed}}, "已彻底删除");
@@ -335,7 +335,7 @@ void CloudiskServer::register_trash_module()
                     int removed = 0;
                     for (auto& h : *hashes) {
                         if (alive.count(h)) continue;
-                        string blob = g_blob_dir + "/" + h;
+                        string blob = blob_path(h);
                         if (file_exists(blob) && unlink(blob.c_str()) == 0) ++removed;
                     }
                     api::ok(resp, {{"blobsRemoved", removed}}, "回收站已清空");

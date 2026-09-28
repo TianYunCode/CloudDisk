@@ -305,7 +305,7 @@ void CloudiskServer::register_share_module()
             if (fileId <= 0) { api::fail(resp, 400, 400, "缺少文件 id"); return; }
 
             auto stream = [resp, sh](SeriesWork* s2, const string& fname, const string& hash) {
-                string blob = g_blob_dir + "/" + hash;
+                string blob = blob_path(hash);
                 if (!file_exists(blob)) { api::fail(resp, 404, 404, "文件内容缺失"); return; }
                 string up = "UPDATE tbl_share SET downloads=downloads+1 WHERE id=" + std::to_string(sh.id);
                 push_mysql(s2, up, [resp, fname, blob](WFMySQLTask*) {

@@ -28,6 +28,7 @@ set(CLOUDDISK_INCLUDE_DIRS
 add_executable(server
     server/gateway/CloudiskServer.cpp
     server/gateway/GatewaySupport.cpp
+    server/infra/BlobStore.cpp
     server/gateway/handlers/AuthHandlers.cpp
     server/gateway/handlers/FileHandlers.cpp
     server/gateway/handlers/TrashHandlers.cpp

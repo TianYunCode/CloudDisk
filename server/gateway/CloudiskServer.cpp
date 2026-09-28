@@ -79,6 +79,10 @@ void CloudiskServer::register_modules()
     mkdir_p(g_upload_dir);
     mkdir_p(g_storage_dir + "/avatars");
 
+    // 装配 blob 存储子系统 (Abstract Factory: 依配置选择具体后端)
+    init_blob_store(g_blob_dir);
+    init_blob_backup(g_rabbitmq_url);
+
     register_static_resources_module();
     register_signup_module();
     register_signin_module();

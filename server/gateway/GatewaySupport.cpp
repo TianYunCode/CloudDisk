@@ -177,35 +177,22 @@ void remove_upload_dir(const string& dir)
 }
 
 // 把内容写入 blob (若已存在则跳过, 实现去重)。返回是否为新写入。
+// 委托给可插拔的 blob 存储后端 (Strategy/Bridge), 收敛存储细节。
 bool write_blob_if_absent(const string& hash, const string& content)
 {
-    string path = g_blob_dir + "/" + hash;
-    if (file_exists(path)) return false;
-    int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) return false;
-    ssize_t off = 0, n = (ssize_t)content.size();
-    while (off < n) {
-        ssize_t w = write(fd, content.data() + off, n - off);
-        if (w <= 0) break;
-        off += w;
-    }
-    close(fd);
-    return true;
+    return blob_store().put_if_absent(hash, content);
 }
 
-// 异步备份: 把 blob 对象投递到 RabbitMQ (失败不影响主流程)。
+// 内容哈希 -> 物理 blob 路径 (委托给存储后端)
+string blob_path(const string& hash)
+{
+    return blob_store().path_of(hash);
+}
+
+// 异步备份: 新 blob 落地后交由备份后端处理 (失败不影响主流程)。
 void publish_oss_backup(const string& hash)
 {
-    try {
-        Channel::ptr_t channel = Channel::CreateFromUri(g_rabbitmq_url);
-        nlohmann::json obj;
-        obj["object"] = hash;                       // OSS 对象键 = 内容哈希
-        obj["file"]   = g_blob_dir + "/" + hash;    // 本地 blob 路径
-        BasicMessage::ptr_t msg = BasicMessage::Create(obj.dump());
-        channel->BasicPublish("oss.direct", "oss", msg);
-    } catch (const std::exception& e) {
-        LOG_WARN("RabbitMQ 备份投递失败(忽略): " << e.what());
-    }
+    blob_backup().on_new_blob(hash);
 }
 
 // 通过 Consul 同步发现 UserService 实例地址。成功返回 true。

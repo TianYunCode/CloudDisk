@@ -249,7 +249,7 @@ void dav_get(const User& u, bool headOnly, HttpResp* resp, SeriesWork* series,
             MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
             if (!c.fetch_row(row)) { resp->set_status(404); resp->String("Not Found"); return; }
             std::string name = row[0].as_string();
-            std::string blob = g_blob_dir + "/" + row[1].as_string();
+            std::string blob = blob_path(row[1].as_string());
             long long size = (long long)row[2].as_ulonglong();
             if (!file_exists(blob)) { resp->set_status(404); resp->String("Not Found"); return; }
             resp->add_header("Content-Type", mime_of(name));

@@ -146,7 +146,7 @@ void CloudiskServer::register_fileupload_module()
         long long parentId = in.contains("parentId") && in["parentId"].is_number() ? in["parentId"].get<long long>() : 0;
         if (filename.empty() || !SqlUtil::valid_hash(hash)) { api::fail(resp, 400, 400, "参数不合法"); return; }
 
-        if (!file_exists(g_blob_dir + "/" + hash)) {
+        if (!blob_store().exists(hash)) {
             api::ok(resp, {{"instant", false}}, "需要完整上传");
             return;
         }
@@ -357,7 +357,7 @@ void CloudiskServer::register_filedownload_module()
             std::vector<MySQLCell> row;
             if (!cursor.fetch_row(row)) { api::fail(resp, 404, 404, "文件不存在"); return; }
             string fname = row[0].as_string();
-            string blob  = g_blob_dir + "/" + row[1].as_string();
+            string blob  = blob_path(row[1].as_string());
             if (!file_exists(blob)) { api::fail(resp, 404, 404, "文件内容缺失"); return; }
             g_metrics.downloads++;
             g_metrics.download_bytes += (long long)file_size_of(blob);
@@ -386,7 +386,7 @@ void CloudiskServer::register_chunk_upload_module()
             api::fail(resp, 400, 400, "参数不合法"); return;
         }
         int uid = user.id;
-        bool blobExists = file_exists(g_blob_dir + "/" + hash);
+        bool blobExists = blob_store().exists(hash);
 
         // 配额校验(以完整大小计)
         string usageSql = usage_quota_sql(uid);
@@ -673,7 +673,7 @@ void CloudiskServer::register_preview_module()
             std::vector<MySQLCell> row;
             if (!cursor.fetch_row(row)) { api::fail(resp, 404, 404, "文件不存在"); return; }
             string fname = row[0].as_string();
-            string blob  = g_blob_dir + "/" + row[1].as_string();
+            string blob  = blob_path(row[1].as_string());
             long long total = file_size_of(blob);
             if (total < 0) { api::fail(resp, 404, 404, "文件内容缺失"); return; }
             string mime = mime_of(fname);
@@ -732,7 +732,7 @@ void CloudiskServer::register_preview_module()
             string fname = row[0].as_string();
             string hash  = row[1].as_string();
             if (!is_thumbnailable(fname)) { api::fail(resp, 404, 404, "该类型无缩略图"); return; }
-            string blob  = g_blob_dir + "/" + hash;
+            string blob  = blob_path(hash);
             if (!file_exists(blob)) { api::fail(resp, 404, 404, "文件内容缺失"); return; }
             string thumbPath = g_thumb_dir + "/" + hash + "_" + std::to_string(size) + ".jpg";
             if (!file_exists(thumbPath)) {
