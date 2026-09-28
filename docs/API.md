@@ -399,6 +399,24 @@ Body：`{ oldPassword, newPassword }`。校验原密码后以新盐重算 sha256
 
 ---
 
+## 存储统计分析
+
+### GET `/api/stats` — 当前用户的存储分析概览（需鉴权）
+
+单请求返回全部维度：
+
+| 字段 | 说明 |
+|---|---|
+| `files` / `folders` / `trash` | 未删除文件数 / 文件夹数 / 回收站项目数 |
+| `logicalSize` / `physicalSize` | 逻辑总占用 / 去重后实际占用（`logicalSize - physicalSize` 即去重节省） |
+| `quota` | 当前用户配额 |
+| `favorites` / `versions` / `shares` | 收藏数 / 历史版本数 / 有效分享数 |
+| `fileTypes` | `[{category, count, size}]`，按 图片/视频/音频/文档/压缩包/代码/其他 归类聚合 |
+| `largest` | `[{id, filename, size}]`，占用最大的前 8 个文件 |
+| `timeline` | `[{date, count}]`，近 14 天每日上传数 |
+
+---
+
 ## 其它
 
 ### GET `/healthz` — 健康检查

@@ -543,6 +543,7 @@ void CloudiskServer::register_modules()
     register_favorite_module();
     register_search_module();
     register_version_module();
+    register_stats_module();
 }
 
 // ----- 静态资源与页面 ----------------------------------------------------------
@@ -3551,6 +3552,110 @@ void CloudiskServer::register_version_module()
             g_metrics.downloads++; g_metrics.download_bytes += (long long)file_size_of(blob);
             resp->add_header("Content-Disposition", "attachment; filename=\"" + fname + "\"");
             resp->File(blob);
+        });
+    });
+}
+
+// =============================================================================
+// 存储分析仪表盘: 概览 KPI + 文件类型分布 + 最大文件 + 近 14 天上传趋势
+// 只读聚合, 全部按当前用户 (uid) 维度, 单请求内串行组装为一个 JSON。
+// =============================================================================
+namespace {
+    // 扩展名 -> 展示分类
+    string stats_category(const string& extRaw)
+    {
+        string e; for (char c : extRaw) e += (char)std::tolower((unsigned char)c);
+        auto in = [&](std::initializer_list<const char*> xs) {
+            for (auto x : xs) if (e == x) return true; return false;
+        };
+        if (in({"jpg","jpeg","png","gif","bmp","webp","svg","ico","heic","tiff"})) return "image";
+        if (in({"mp4","mkv","avi","mov","wmv","flv","webm","m4v","mpeg","mpg"}))    return "video";
+        if (in({"mp3","wav","flac","aac","ogg","m4a","wma","opus"}))                return "audio";
+        if (in({"pdf","doc","docx","xls","xlsx","ppt","pptx","txt","md","rtf","csv","odt"})) return "document";
+        if (in({"zip","rar","7z","tar","gz","bz2","xz","tgz"}))                     return "archive";
+        if (in({"c","cpp","h","hpp","js","ts","py","java","go","rs","rb","php","sh","html","css","json","xml","yml","yaml","sql"})) return "code";
+        return "other";
+    }
+}
+
+void CloudiskServer::register_stats_module()
+{
+    m_server.GET("/api/stats", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        string U = std::to_string(user.id);
+        string g = std::to_string(g_user_quota);
+        auto out = std::make_shared<nlohmann::json>(nlohmann::json::object());
+
+        string q1 =
+            "SELECT "
+            "(SELECT COUNT(*) FROM tbl_file WHERE deleted=0 AND uid=" + U + "), "
+            "(SELECT COUNT(*) FROM tbl_folder WHERE deleted=0 AND uid=" + U + "), "
+            "(SELECT CAST(COALESCE(SUM(size),0) AS UNSIGNED) FROM tbl_file WHERE deleted=0 AND uid=" + U + "), "
+            "(SELECT CAST(COALESCE(SUM(size),0) AS UNSIGNED) FROM (SELECT hashcode, MIN(size) size FROM tbl_file WHERE deleted=0 AND uid=" + U + " GROUP BY hashcode) x), "
+            "(SELECT COUNT(*) FROM tbl_file WHERE deleted=1 AND uid=" + U + "), "
+            "(SELECT IF(quota>0,quota," + g + ") FROM tbl_user WHERE id=" + U + "), "
+            "(SELECT COUNT(*) FROM tbl_favorite WHERE uid=" + U + "), "
+            "(SELECT COUNT(*) FROM tbl_file_version WHERE uid=" + U + "), "
+            "(SELECT COUNT(*) FROM tbl_share WHERE uid=" + U + " AND revoked=0)";
+        push_mysql(series, q1, [resp, U, out](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "统计失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
+            if (c.fetch_row(row)) {
+                (*out)["files"]        = cell_ll(row[0]);
+                (*out)["folders"]      = cell_ll(row[1]);
+                (*out)["logicalSize"]  = (long long)row[2].as_ulonglong();
+                (*out)["physicalSize"] = (long long)row[3].as_ulonglong();
+                (*out)["trash"]        = cell_ll(row[4]);
+                (*out)["quota"]        = cell_ll(row[5]);
+                (*out)["favorites"]    = cell_ll(row[6]);
+                (*out)["versions"]     = cell_ll(row[7]);
+                (*out)["shares"]       = cell_ll(row[8]);
+            }
+            string q2 = "SELECT LOWER(SUBSTRING_INDEX(filename,'.',-1)) ext, COUNT(*) c, CAST(COALESCE(SUM(size),0) AS UNSIGNED) s "
+                        "FROM tbl_file WHERE deleted=0 AND uid=" + U + " GROUP BY ext";
+            push_mysql(series_of(t), q2, [resp, U, out](WFMySQLTask* t2) {
+                std::map<string, std::pair<long long, long long>> cats;
+                if (mysql_ok(t2)) {
+                    MySQLResultCursor c2{ t2->get_resp() }; std::vector<MySQLCell> r;
+                    while (c2.fetch_row(r)) {
+                        string cat = stats_category(r[0].as_string());
+                        cats[cat].first  += cell_ll(r[1]);
+                        cats[cat].second += (long long)r[2].as_ulonglong();
+                    }
+                }
+                nlohmann::json arr = nlohmann::json::array();
+                for (auto& kv : cats)
+                    arr.push_back({ {"category", kv.first}, {"count", kv.second.first}, {"size", kv.second.second} });
+                (*out)["fileTypes"] = arr;
+
+                string q3 = "SELECT id, filename, size FROM tbl_file WHERE deleted=0 AND uid=" + U
+                          + " ORDER BY size DESC, id DESC LIMIT 8";
+                push_mysql(series_of(t2), q3, [resp, U, out](WFMySQLTask* t3) {
+                    nlohmann::json arr3 = nlohmann::json::array();
+                    if (mysql_ok(t3)) {
+                        MySQLResultCursor c3{ t3->get_resp() }; std::vector<MySQLCell> r;
+                        while (c3.fetch_row(r))
+                            arr3.push_back({ {"id", cell_ll(r[0])}, {"filename", r[1].as_string()},
+                                             {"size", (long long)r[2].as_ulonglong()} });
+                    }
+                    (*out)["largest"] = arr3;
+
+                    string q4 = "SELECT DATE_FORMAT(created_at,'%Y-%m-%d') d, COUNT(*) c "
+                                "FROM tbl_file WHERE deleted=0 AND uid=" + U
+                              + " AND created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY) GROUP BY d ORDER BY d";
+                    push_mysql(series_of(t3), q4, [resp, out](WFMySQLTask* t4) {
+                        nlohmann::json arr4 = nlohmann::json::array();
+                        if (mysql_ok(t4)) {
+                            MySQLResultCursor c4{ t4->get_resp() }; std::vector<MySQLCell> r;
+                            while (c4.fetch_row(r))
+                                arr4.push_back({ {"date", r[0].as_string()}, {"count", cell_ll(r[1])} });
+                        }
+                        (*out)["timeline"] = arr4;
+                        api::ok(resp, *out, "ok");
+                    });
+                });
+            });
         });
     });
 }

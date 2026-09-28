@@ -74,6 +74,8 @@
     versionRestore:  (fileId, versionId) => request('POST', '/api/file/version/restore', { fileId, versionId }),
     versionUpload:   (fileId, file) => { const fd = new FormData(); fd.append('file', file, file.name); return request('POST', '/api/file/version?fileId=' + encodeURIComponent(fileId), fd); },
     versionDownloadUrl: (versionId) => '/api/file/version/download?versionId=' + encodeURIComponent(versionId) + '&token=' + encodeURIComponent(Store.token),
+    // 统计分析
+    stats:     () => request('GET', '/api/stats'),
     // 管理后台
     adminStats:       () => request('GET', '/api/admin/stats'),
     adminUsers:       (limit, offset) => request('GET', '/api/admin/users?limit=' + (limit || 100) + '&offset=' + (offset || 0)),

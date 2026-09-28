@@ -33,6 +33,10 @@
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></svg>
           <span>收藏</span>
         </button>
+        <button class="nav-item" id="navStats" type="button">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
+          <span>统计分析</span>
+        </button>
         <button class="nav-item" id="navTrash" type="button">
           <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
           <span>回收站</span>
@@ -175,6 +179,25 @@
             </thead>
             <tbody id="favBody"></tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- ========== 统计分析视图 ========== -->
+      <section id="statsView" hidden>
+        <div class="stats-kpis" id="statsKpis"></div>
+        <div class="stats-grid">
+          <div class="card stats-card">
+            <h3 class="stats-title">文件类型分布</h3>
+            <div id="statsTypes" class="stats-types"></div>
+          </div>
+          <div class="card stats-card">
+            <h3 class="stats-title">最大的文件</h3>
+            <div id="statsLargest" class="stats-largest"></div>
+          </div>
+          <div class="card stats-card stats-span">
+            <h3 class="stats-title">近 14 天上传趋势</h3>
+            <div id="statsTimeline" class="stats-timeline"></div>
+          </div>
         </div>
       </section>
 

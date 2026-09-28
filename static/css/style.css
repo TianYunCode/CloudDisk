@@ -449,3 +449,30 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--brand-1)
 .ver-meta { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
 .ver-meta .muted { font-size: 12px; color: var(--muted); }
 .ver-ops { display: flex; align-items: center; gap: 6px; }
+
+/* ===== 统计分析仪表盘 ===== */
+.stats-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+.kpi-value { font-size: 26px; font-weight: 800; line-height: 1.1; background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.kpi-label { font-size: 13px; font-weight: 600; margin-top: 6px; }
+.kpi-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.stats-card { padding: 18px 20px; }
+.stats-span { grid-column: 1 / -1; }
+.stats-title { font-size: 15px; font-weight: 700; margin: 0 0 14px; }
+.stats-types { display: flex; flex-direction: column; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 10px; font-size: 13px; }
+.bar-name { color: var(--muted); }
+.bar-track { height: 10px; background: var(--bg); border-radius: 6px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 6px; transition: width .4s ease; }
+.bar-val { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.stats-largest { display: flex; flex-direction: column; gap: 8px; }
+.lg-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 8px; background: var(--bg); font-size: 13px; }
+.lg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-size { flex-shrink: 0; font-weight: 600; color: var(--brand); text-decoration: none; }
+.lg-size:hover { text-decoration: underline; }
+.stats-timeline { display: flex; align-items: flex-end; gap: 6px; height: 140px; padding-top: 8px; }
+.tl-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
+.tl-bar { width: 60%; min-height: 2px; background: var(--brand-grad); border-radius: 4px 4px 0 0; transition: height .4s ease; }
+.tl-lbl { font-size: 10px; color: var(--muted); transform: rotate(-45deg); white-space: nowrap; }
+@media (max-width: 720px) { .stats-grid { grid-template-columns: 1fr; } }

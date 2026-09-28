@@ -925,9 +925,10 @@
 
   // ---------------- 视图切换 ----------------
   function setNav(active) {
-    ['navFiles', 'navFav', 'navTrash', 'navShares', 'navAccount', 'navAdmin'].forEach(id => { const el = $(id); if (el) el.classList.toggle('active', id === active); });
+    ['navFiles', 'navFav', 'navStats', 'navTrash', 'navShares', 'navAccount', 'navAdmin'].forEach(id => { const el = $(id); if (el) el.classList.toggle('active', id === active); });
     $('filesView').hidden = active !== 'navFiles';
     const fv = $('favView'); if (fv) fv.hidden = active !== 'navFav';
+    const stv = $('statsView'); if (stv) stv.hidden = active !== 'navStats';
     $('trashView').hidden = active !== 'navTrash';
     const sv = $('sharesView'); if (sv) sv.hidden = active !== 'navShares';
     const av = $('accountView'); if (av) av.hidden = active !== 'navAccount';
@@ -992,6 +993,69 @@
     $('pageTitle').textContent = '我的分享';
     loadShares();
   }
+  function showStats() {
+    state.view = 'stats';
+    setNav('navStats');
+    $('pageTitle').textContent = '统计分析';
+    loadStats();
+  }
+  const CAT_META = {
+    image:    { label: '图片', color: '#6366f1' },
+    video:    { label: '视频', color: '#ec4899' },
+    audio:    { label: '音频', color: '#f59e0b' },
+    document: { label: '文档', color: '#10b981' },
+    archive:  { label: '压缩包', color: '#8b5cf6' },
+    code:     { label: '代码', color: '#0ea5e9' },
+    other:    { label: '其他', color: '#94a3b8' },
+  };
+  async function loadStats() {
+    const kpi = $('statsKpis'); const tp = $('statsTypes'); const lg = $('statsLargest'); const tl = $('statsTimeline');
+    kpi.innerHTML = '<div class="empty-cell">加载中…</div>'; tp.innerHTML = ''; lg.innerHTML = ''; tl.innerHTML = '';
+    try {
+      const s = await Api.stats();
+      const used = s.logicalSize || 0, quota = s.quota || 1, phys = s.physicalSize || 0;
+      const saved = Math.max(0, used - phys);
+      const pct = quota > 0 ? Math.min(100, Math.round(used / quota * 100)) : 0;
+      const cards = [
+        { label: '已用空间', value: humanSize(used), sub: pct + '% / ' + humanSize(quota) },
+        { label: '文件数', value: s.files || 0, sub: (s.folders || 0) + ' 个文件夹' },
+        { label: '去重节省', value: humanSize(saved), sub: '实际占用 ' + humanSize(phys) },
+        { label: '分享 / 收藏', value: (s.shares || 0) + ' / ' + (s.favorites || 0), sub: (s.versions || 0) + ' 个历史版本' },
+        { label: '回收站', value: s.trash || 0, sub: '可恢复项目' },
+      ];
+      kpi.innerHTML = cards.map(c =>
+        '<div class="kpi-card"><div class="kpi-value">' + escapeHtml(String(c.value)) + '</div>' +
+        '<div class="kpi-label">' + escapeHtml(c.label) + '</div>' +
+        '<div class="kpi-sub">' + escapeHtml(c.sub) + '</div></div>').join('');
+
+      const types = (s.fileTypes || []).slice().sort((a, b) => b.size - a.size);
+      const maxSize = types.reduce((m, t) => Math.max(m, t.size), 0) || 1;
+      tp.innerHTML = types.length ? types.map(t => {
+        const m = CAT_META[t.category] || CAT_META.other;
+        const w = Math.max(3, Math.round(t.size / maxSize * 100));
+        return '<div class="bar-row"><span class="bar-name">' + m.label + '</span>' +
+          '<div class="bar-track"><div class="bar-fill" style="width:' + w + '%;background:' + m.color + '"></div></div>' +
+          '<span class="bar-val">' + t.count + ' 个 · ' + humanSize(t.size) + '</span></div>';
+      }).join('') : '<div class="empty-cell">暂无文件</div>';
+
+      const largest = s.largest || [];
+      lg.innerHTML = largest.length ? largest.map(f =>
+        '<div class="lg-row"><span class="lg-name" title="' + escapeHtml(f.filename) + '">' + escapeHtml(f.filename) + '</span>' +
+        '<a class="lg-size" href="' + Api.downloadUrl(f.id) + '">' + humanSize(f.size) + '</a></div>').join('')
+        : '<div class="empty-cell">暂无文件</div>';
+
+      // 补齐近 14 天
+      const map = {}; (s.timeline || []).forEach(x => map[x.date] = x.count);
+      const days = []; const today = new Date();
+      for (let i = 13; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); }
+      const maxC = days.reduce((m, d) => Math.max(m, map[d] || 0), 0) || 1;
+      tl.innerHTML = days.map(d => {
+        const c = map[d] || 0; const h = Math.round(c / maxC * 100);
+        return '<div class="tl-col" title="' + d + '：' + c + ' 个"><div class="tl-bar" style="height:' + Math.max(2, h) + '%"></div>' +
+          '<span class="tl-lbl">' + d.slice(5) + '</span></div>';
+      }).join('');
+    } catch (e) { kpi.innerHTML = '<div class="empty-cell">加载失败</div>'; }
+  }
   function showAccount() {
     state.view = 'account';
     setNav('navAccount');
@@ -1006,6 +1070,7 @@
   }
   $('navFiles').onclick = showFiles;
   { const el = $('navFav'); if (el) el.onclick = showFav; }
+  { const el = $('navStats'); if (el) el.onclick = showStats; }
   $('navTrash').onclick = showTrash;
   { const el = $('navShares'); if (el) el.onclick = showShares; }
   { const el = $('navAccount'); if (el) el.onclick = showAccount; }

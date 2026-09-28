@@ -399,6 +399,22 @@ curl -s -u "$P6U:$WT" -X PROPFIND -H 'Depth: 1' "$BASE/webdav/it/" | grep -q "a.
 [ "$(wcode -X DELETE "$BASE/webdav/it")" = "204" ] && ok "WebDAV DELETE 204" || bad "WebDAV DELETE"
 [ "$(wcode -X PROPFIND -H 'Depth: 0' "$BASE/webdav/it/")" = "404" ] && ok "WebDAV 删除后 404" || bad "WebDAV 删除后应 404"
 
+echo "== 存储统计 =="
+SU="stat_$(date +%s)"
+curl -s -X POST "$BASE/api/auth/register" -H 'Content-Type: application/json' -d "{\"username\":\"$SU\",\"password\":\"$PW\"}" >/dev/null
+STOK=$(curl -s -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$SU\",\"password\":\"$PW\"}" | jq "d['data']['token']")
+printf 'STAT-IMG' > /tmp/st1.png; curl -s -H "Authorization: Bearer $STOK" -X POST "$BASE/api/file/upload" -F "f=@/tmp/st1.png" >/dev/null
+printf 'STAT-IMG' > /tmp/st2.png; curl -s -H "Authorization: Bearer $STOK" -X POST "$BASE/api/file/upload" -F "f=@/tmp/st2.png" >/dev/null
+printf 'STAT-DOCUMENT-CONTENT' > /tmp/st3.pdf; curl -s -H "Authorization: Bearer $STOK" -X POST "$BASE/api/file/upload" -F "f=@/tmp/st3.pdf" >/dev/null
+STAT=$(curl -s -H "Authorization: Bearer $STOK" "$BASE/api/stats")
+[ "$(echo "$STAT" | jq "d['data']['files']")" = "3" ] && ok "统计文件数=3" || bad "统计文件数异常" "$STAT"
+SLOG=$(echo "$STAT" | jq "d['data']['logicalSize']"); SPHY=$(echo "$STAT" | jq "d['data']['physicalSize']")
+[ "$SLOG" -gt "$SPHY" ] 2>/dev/null && ok "逻辑体积>物理体积(去重生效 $SLOG>$SPHY)" || bad "去重统计异常" "log=$SLOG phy=$SPHY"
+[ "$(echo "$STAT" | jq "len(d['data']['fileTypes'])")" -ge 2 ] 2>/dev/null && ok "文件类型分类>=2" || bad "类型分类异常" "$STAT"
+[ -n "$(echo "$STAT" | jq "d['data']['largest'][0]['size']")" ] && ok "最大文件榜非空" || bad "最大文件榜为空"
+[ "$(echo "$STAT" | jq "sum(x['count'] for x in d['data']['timeline'])")" = "3" ] && ok "近14天上传计数=3" || bad "趋势计数异常" "$STAT"
+assert_code GET /api/stats 401
+
 echo "== 文件版本历史 =="
 printf 'ver-content-1' > /tmp/it_ver.txt
 curl -s -H "Authorization: Bearer $TOKEN" -X POST "$BASE/api/file/upload" -F "f=@/tmp/it_ver.txt" >/dev/null
