@@ -144,3 +144,14 @@ CREATE TABLE IF NOT EXISTS tbl_token (
     UNIQUE KEY uk_token_hash (token_hash),
     KEY idx_uid (uid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS tbl_favorite (
+    id         BIGINT   NOT NULL AUTO_INCREMENT,
+    uid        INT      NOT NULL,
+    item_type  TINYINT  NOT NULL DEFAULT 0,
+    item_id    BIGINT   NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_fav (uid, item_type, item_id),
+    KEY idx_uid (uid, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

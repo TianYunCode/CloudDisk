@@ -63,6 +63,10 @@
     tokenList:   () => request('GET', '/api/tokens'),
     tokenCreate: (name, expiresDays) => request('POST', '/api/tokens', { name, expiresDays: expiresDays || 0 }),
     tokenRevoke: (id) => request('POST', '/api/tokens/revoke', { id }),
+    // 收藏夹
+    favToggle: (itemType, itemId) => request('POST', '/api/favorite/toggle', { itemType, itemId }),
+    favBatch:  (fileIds, folderIds) => request('POST', '/api/favorite/batch', { fileIds, folderIds }),
+    favList:   () => request('GET', '/api/favorites'),
     // 管理后台
     adminStats:       () => request('GET', '/api/admin/stats'),
     adminUsers:       (limit, offset) => request('GET', '/api/admin/users?limit=' + (limit || 100) + '&offset=' + (offset || 0)),

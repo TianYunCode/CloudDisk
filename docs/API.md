@@ -370,7 +370,15 @@ Body：`{ oldPassword, newPassword }`。校验原密码后以新盐重算 sha256
 ## 生态 · 监控指标
 
 ### GET `/metrics` — Prometheus 文本曝露格式
-无需认证（建议置于内网/反代之后）。导出计数器与仪表：登录成功/失败、上传/下载次数与字节、分享创建、令牌鉴权次数、WebDAV 请求数，以及用户数、文件数、逻辑存储用量、活跃分享数、运行时长。
+默认无需认证（建议置于内网/反代之后）。若配置了 `metrics_token`（或环境变量 `METRICS_TOKEN`），抓取时须带 `?token=<值>` 或 `Authorization: Bearer <值>`，否则返回 `401`。导出计数器与仪表：登录成功/失败、上传/下载次数与字节、分享创建、令牌鉴权次数、WebDAV 请求数，以及用户数、文件数、逻辑存储用量、活跃分享数、运行时长。
+
+## 收藏夹
+
+| 方法 & 路径 | 说明 |
+|---|---|
+| POST `/api/favorite/toggle` `{itemType, itemId}` | 切换收藏（`itemType`：0=文件，1=文件夹）；已收藏则取消，返回 `{favorited}`；添加时校验条目归属当前用户且未删除，否则 `404` |
+| POST `/api/favorite/batch` `{fileIds[], folderIds[]}` | 批量收藏（`INSERT IGNORE`，仅对归属自己且未删除的条目生效），供多选工具栏使用 |
+| GET `/api/favorites` | 列出收藏的文件夹与文件（跳过已删除），含名称/大小/所在目录/收藏时间 |
 
 ---
 

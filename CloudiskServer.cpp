@@ -540,6 +540,7 @@ void CloudiskServer::register_modules()
     register_metrics_module();
     register_token_module();
     register_webdav_module();
+    register_favorite_module();
 }
 
 // ----- 静态资源与页面 ----------------------------------------------------------
@@ -2635,6 +2636,12 @@ void CloudiskServer::register_admin_module()
 void CloudiskServer::register_metrics_module()
 {
     m_server.GET("/metrics", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        // 可选抓取令牌: 配置了 metrics_token 时必须匹配 (?token= 或 Bearer)
+        std::string mtok = Config::instance().metrics_token();
+        if (!mtok.empty()) {
+            std::string t = req->has_query("token") ? req->query("token") : api::extract_token(req);
+            if (t != mtok) { resp->set_status(401); resp->add_header("Content-Type", "text/plain"); resp->String("unauthorized\n"); return; }
+        }
         // DB 侧 gauge: 用户数 / 文件数 / 存储用量
         string sql = "SELECT (SELECT COUNT(*) FROM tbl_user WHERE tomb=0), "
                      "(SELECT COUNT(*) FROM tbl_file WHERE deleted=0), "
@@ -3222,4 +3229,110 @@ void CloudiskServer::register_webdav_module()
 {
     m_server.ROUTE("/webdav", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) { dav_handle(req, resp, series); }, Verb::ANY);
     m_server.ROUTE("/webdav/*", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) { dav_handle(req, resp, series); }, Verb::ANY);
+}
+
+// =============================================================================
+// 收藏夹: 文件 / 文件夹加星, 独立视图列出
+// =============================================================================
+void CloudiskServer::register_favorite_module()
+{
+    // 切换收藏: 已收藏则取消, 未收藏则添加 (会校验条目归属)
+    m_server.POST("/api/favorite/toggle", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        nlohmann::json in;
+        if (!parse_body(req, in)) { api::fail(resp, 400, 400, "请求体格式错误"); return; }
+        int type = in.contains("itemType") && in["itemType"].is_number() ? in["itemType"].get<int>() : 0;
+        long long id = in.contains("itemId") && in["itemId"].is_number() ? in["itemId"].get<long long>() : 0;
+        if ((type != 0 && type != 1) || id <= 0) { api::fail(resp, 400, 400, "参数不合法"); return; }
+        long long uid = user.id; string su = std::to_string(uid), st = std::to_string(type), si = std::to_string(id);
+        string sel = "SELECT id FROM tbl_favorite WHERE uid=" + su + " AND item_type=" + st + " AND item_id=" + si + " LIMIT 1";
+        push_mysql(series, sel, [resp, su, st, si, type, id](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "操作失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
+            bool exists = c.fetch_row(row);
+            if (exists) {
+                string del = "DELETE FROM tbl_favorite WHERE uid=" + su + " AND item_type=" + st + " AND item_id=" + si;
+                push_mysql(series_of(t), del, [resp](WFMySQLTask* t2) {
+                    if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "取消失败"); return; }
+                    api::ok(resp, {{"favorited", false}}, "已取消收藏");
+                });
+                return;
+            }
+            // 添加前校验条目存在且归属当前用户且未删除
+            string tbl = type == 0 ? "tbl_file" : "tbl_folder";
+            string chk = "SELECT id FROM " + tbl + " WHERE deleted=0 AND uid=" + su + " AND id=" + si + " LIMIT 1";
+            push_mysql(series_of(t), chk, [resp, su, st, si](WFMySQLTask* t2) {
+                if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "操作失败"); return; }
+                MySQLResultCursor c2{ t2->get_resp() }; std::vector<MySQLCell> r2;
+                if (!c2.fetch_row(r2)) { api::fail(resp, 404, 404, "条目不存在"); return; }
+                string ins = "INSERT IGNORE INTO tbl_favorite (uid, item_type, item_id) VALUES (" + su + ", " + st + ", " + si + ")";
+                push_mysql(series_of(t2), ins, [resp](WFMySQLTask* t3) {
+                    if (!mysql_ok(t3)) { api::fail(resp, 500, 500, "收藏失败"); return; }
+                    api::ok(resp, {{"favorited", true}}, "已收藏");
+                });
+            });
+        });
+    });
+
+    // 批量收藏 (多选工具栏使用): INSERT IGNORE, 仅收藏归属自己且未删除的条目
+    m_server.POST("/api/favorite/batch", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        nlohmann::json in;
+        if (!parse_body(req, in)) { api::fail(resp, 400, 400, "请求体格式错误"); return; }
+        std::vector<long long> fileIds, folderIds;
+        if (!ids_from_json(in, "fileIds", fileIds) || !ids_from_json(in, "folderIds", folderIds)) {
+            api::fail(resp, 400, 400, "参数不合法"); return;
+        }
+        if (fileIds.empty() && folderIds.empty()) { api::ok(resp, {{"added", 0}}, "无变化"); return; }
+        long long uid = user.id; string su = std::to_string(uid);
+        string q;
+        if (!fileIds.empty())
+            q += "INSERT IGNORE INTO tbl_favorite (uid, item_type, item_id) "
+                 "SELECT " + su + ", 0, id FROM tbl_file WHERE deleted=0 AND uid=" + su + " AND id IN (" + ids_csv(fileIds) + "); ";
+        if (!folderIds.empty())
+            q += "INSERT IGNORE INTO tbl_favorite (uid, item_type, item_id) "
+                 "SELECT " + su + ", 1, id FROM tbl_folder WHERE deleted=0 AND uid=" + su + " AND id IN (" + ids_csv(folderIds) + "); ";
+        push_mysql(series, q, [resp](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "收藏失败"); return; }
+            api::ok(resp, {}, "已加入收藏");
+        });
+    });
+
+    // 收藏列表 (文件夹 + 文件, 跳过已删除)
+    m_server.GET("/api/favorites", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        long long uid = user.id; string su = std::to_string(uid);
+        string fq = "SELECT d.item_id, o.name, o.parent_id, DATE_FORMAT(d.created_at,'%Y-%m-%d %H:%i:%s') "
+                    "FROM tbl_favorite d JOIN tbl_folder o ON o.id=d.item_id AND o.uid=" + su + " "
+                    "WHERE d.uid=" + su + " AND d.item_type=1 AND o.deleted=0 ORDER BY d.created_at DESC";
+        push_mysql(series, fq, [resp, su](WFMySQLTask* t) {
+            nlohmann::json items = nlohmann::json::array();
+            if (mysql_ok(t)) {
+                MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
+                while (c.fetch_row(row)) {
+                    items.push_back({ {"type", 1}, {"id", cell_ll(row[0])}, {"name", row[1].as_string()},
+                                      {"parentId", cell_ll(row[2])}, {"size", 0},
+                                      {"favoritedAt", row[3].is_string() ? row[3].as_string() : string()} });
+                }
+            }
+            auto itemsPtr = std::make_shared<nlohmann::json>(items);
+            string flq = "SELECT d.item_id, x.filename, x.parent_id, x.size, DATE_FORMAT(d.created_at,'%Y-%m-%d %H:%i:%s') "
+                         "FROM tbl_favorite d JOIN tbl_file x ON x.id=d.item_id AND x.uid=" + su + " "
+                         "WHERE d.uid=" + su + " AND d.item_type=0 AND x.deleted=0 ORDER BY d.created_at DESC";
+            push_mysql(series_of(t), flq, [resp, itemsPtr](WFMySQLTask* t2) {
+                if (mysql_ok(t2)) {
+                    MySQLResultCursor c{ t2->get_resp() }; std::vector<MySQLCell> row;
+                    while (c.fetch_row(row)) {
+                        itemsPtr->push_back({ {"type", 0}, {"id", cell_ll(row[0])}, {"name", row[1].as_string()},
+                                              {"parentId", cell_ll(row[2])}, {"size", (long long)row[3].as_ulonglong()},
+                                              {"favoritedAt", row[4].is_string() ? row[4].as_string() : string()} });
+                    }
+                }
+                api::ok(resp, {{"items", *itemsPtr}}, "ok");
+            });
+        });
+    });
 }

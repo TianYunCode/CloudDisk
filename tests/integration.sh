@@ -399,6 +399,19 @@ curl -s -u "$P6U:$WT" -X PROPFIND -H 'Depth: 1' "$BASE/webdav/it/" | grep -q "a.
 [ "$(wcode -X DELETE "$BASE/webdav/it")" = "204" ] && ok "WebDAV DELETE 204" || bad "WebDAV DELETE"
 [ "$(wcode -X PROPFIND -H 'Depth: 0' "$BASE/webdav/it/")" = "404" ] && ok "WebDAV 删除后 404" || bad "WebDAV 删除后应 404"
 
+echo "== 收藏夹 =="
+FAVFID=$(curl -s -X POST "$BASE/api/folder/create" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"收藏测试夹","parentId":0}' | jq "d['data']['id']")
+FAV1=$(curl -s -X POST "$BASE/api/favorite/toggle" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "{\"itemType\":1,\"itemId\":$FAVFID}" | jq "d['data']['favorited']")
+[ "$FAV1" = "True" ] && ok "首次 toggle 收藏 (favorited=true)" || bad "toggle 未收藏" "$FAV1"
+FCNT=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/favorites" | jq "len(d['data']['items'])")
+[ "$FCNT" -ge 1 ] 2>/dev/null && ok "收藏列表返回 $FCNT 项" || bad "收藏列表异常" "$FCNT"
+assert_code POST /api/favorite/batch 200 "{\"fileIds\":[],\"folderIds\":[$FAVFID]}" "$TOKEN"   # 幂等
+FAV2=$(curl -s -X POST "$BASE/api/favorite/toggle" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "{\"itemType\":1,\"itemId\":$FAVFID}" | jq "d['data']['favorited']")
+[ "$FAV2" = "False" ] && ok "再次 toggle 取消收藏 (favorited=false)" || bad "toggle 未取消" "$FAV2"
+assert_code POST /api/favorite/toggle 404 '{"itemType":0,"itemId":999999999}' "$TOKEN"    # 不存在
+assert_code POST /api/favorite/toggle 400 '{"itemType":5,"itemId":1}' "$TOKEN"             # 非法类型
+assert_code GET /api/favorites 401                                                          # 需鉴权
+
 echo
 echo "============================================"
 printf "结果: \033[32m%d 通过\033[0m, " "$PASS"

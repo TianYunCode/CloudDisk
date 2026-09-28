@@ -431,3 +431,6 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--brand-1)
 .tok-reveal .tfa-secret { display: block; margin: 8px 0; word-break: break-all; }
 .webdav-box { margin-top: 6px; }
 .webdav-box .tfa-secret { display: inline-block; }
+
+/* 收藏视图 */
+.fav-ic { width: 18px; height: 18px; vertical-align: -3px; margin-right: 8px; color: var(--brand-1); }

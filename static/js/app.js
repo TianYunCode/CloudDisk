@@ -341,6 +341,12 @@
     if (fileIds.length + folderIds.length === 0) return;
     openMovePicker(fileIds, folderIds);
   };
+  { const el = $('batchFav'); if (el) el.onclick = async () => {
+    const { fileIds, folderIds } = selectedIds();
+    if (fileIds.length + folderIds.length === 0) return;
+    try { await Api.favBatch(fileIds, folderIds); toast('已加入收藏', 'ok'); clearSelection(); }
+    catch (e) { toast(e.message || '收藏失败', 'err'); }
+  }; }
 
   // ---------------- 移动选择器 ----------------
   function openMovePicker(fileIds, folderIds) {
@@ -862,8 +868,9 @@
 
   // ---------------- 视图切换 ----------------
   function setNav(active) {
-    ['navFiles', 'navTrash', 'navShares', 'navAccount', 'navAdmin'].forEach(id => { const el = $(id); if (el) el.classList.toggle('active', id === active); });
+    ['navFiles', 'navFav', 'navTrash', 'navShares', 'navAccount', 'navAdmin'].forEach(id => { const el = $(id); if (el) el.classList.toggle('active', id === active); });
     $('filesView').hidden = active !== 'navFiles';
+    const fv = $('favView'); if (fv) fv.hidden = active !== 'navFav';
     $('trashView').hidden = active !== 'navTrash';
     const sv = $('sharesView'); if (sv) sv.hidden = active !== 'navShares';
     const av = $('accountView'); if (av) av.hidden = active !== 'navAccount';
@@ -884,6 +891,44 @@
     $('pageTitle').textContent = '回收站';
     loadTrash();
   }
+  function showFav() {
+    state.view = 'fav';
+    setNav('navFav');
+    $('pageTitle').textContent = '收藏';
+    loadFav();
+  }
+  async function loadFav() {
+    const body = $('favBody');
+    body.innerHTML = '<tr><td colspan="4" class="empty-cell">加载中…</td></tr>';
+    try {
+      const r = await Api.favList();
+      const items = r.items || [];
+      if (!items.length) { body.innerHTML = '<tr><td colspan="4" class="empty-cell">还没有收藏任何内容</td></tr>'; return; }
+      body.innerHTML = items.map(it => {
+        const isFolder = it.type === 1;
+        const icon = isFolder
+          ? '<svg class="icon fav-ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+          : '<svg class="icon fav-ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+        const open = isFolder
+          ? '<button class="btn btn-sm btn-ghost" data-open="' + it.parentId + '">前往目录</button>'
+          : '<button class="btn btn-sm btn-ghost" data-dl="' + it.id + '">下载</button>';
+        return '<tr>' +
+          '<td>' + icon + escapeHtml(it.name) + '</td>' +
+          '<td class="hide-sm">' + (isFolder ? '—' : humanSize(it.size)) + '</td>' +
+          '<td class="hide-sm muted">' + escapeHtml(it.favoritedAt || '') + '</td>' +
+          '<td class="col-actions">' + open +
+          ' <button class="btn btn-sm btn-ghost" data-unfav="' + it.type + ':' + it.id + '">取消收藏</button></td>' +
+          '</tr>';
+      }).join('');
+      body.querySelectorAll('[data-unfav]').forEach(b => b.onclick = async () => {
+        const [t, id] = b.dataset.unfav.split(':').map(Number);
+        try { await Api.favToggle(t, id); toast('已取消收藏', 'ok'); loadFav(); }
+        catch (err) { toast(err.message || '操作失败', 'err'); }
+      });
+      body.querySelectorAll('[data-dl]').forEach(b => b.onclick = () => { location.href = Api.downloadUrl(Number(b.dataset.dl)); });
+      body.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { state.parentId = Number(b.dataset.open); showFiles(); });
+    } catch (err) { body.innerHTML = '<tr><td colspan="4" class="empty-cell">加载失败</td></tr>'; }
+  }
   function showShares() {
     state.view = 'shares';
     setNav('navShares');
@@ -903,6 +948,7 @@
     loadAdmin();
   }
   $('navFiles').onclick = showFiles;
+  { const el = $('navFav'); if (el) el.onclick = showFav; }
   $('navTrash').onclick = showTrash;
   { const el = $('navShares'); if (el) el.onclick = showShares; }
   { const el = $('navAccount'); if (el) el.onclick = showAccount; }

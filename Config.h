@@ -38,6 +38,8 @@ public:
     std::string rabbitmq_url() { return get_str("rabbitmq_url", "RABBITMQ_URL", "amqp://guest:guest@localhost:5672/%2f"); }
     std::string consul_url()   { return get_str("consul_url",   "CONSUL_URL",   "http://127.0.0.1:8500"); }
     std::string jwt_secret()   { return get_str("jwt_secret",   "JWT_SECRET",   "$Rv&O98@"); }
+    // /metrics 抓取令牌: 非空时, 抓取需带 ?token= 或 Bearer 匹配 (为空则开放, 建议内网/反代)
+    std::string metrics_token(){ return get_str("metrics_token","METRICS_TOKEN",""); }
     std::string storage_dir()  { return get_str("storage_dir",  "STORAGE_DIR",  "storage"); }
     std::string log_file()     { return get_str("log_file",     "LOG_FILE",     "logs/clouddisk.log"); }
     std::string oss_bucket()   { return get_str("oss_bucket",   "OSS_BUCKET",   ""); }

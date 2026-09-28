@@ -15,6 +15,7 @@
 
 **文件管理**
 - **多级文件夹**：新建 / 重命名 / 进入，物化路径（materialized path）驱动，面包屑导航
+- **收藏夹**：文件/文件夹一键加星，独立「收藏」视图集中查看与跳转，多选批量收藏
 - 多文件**拖拽上传**到当前目录，实时**进度条**
 - **内容寻址秒传**：相同内容的文件（SHA-256 命中）瞬间完成，不重复传输/存储
 - 文件**列表**：目录内关键字搜索、按名称/大小/时间排序、分页
@@ -168,11 +169,11 @@ docker compose up -d --build
 ## 🧪 测试
 
 ```bash
-bash tests/integration.sh          # 122 项 API/边界/安全集成测试（含令牌/WebDAV/指标）
+bash tests/integration.sh          # 129 项 API/边界/安全集成测试（含令牌/WebDAV/指标/收藏）
 ```
 
 浏览器端到端测试（如环境可下载 Chromium）见 `tests/e2e/`：
-`qr_validate`(11) · `e2e_p1`(11) · `e2e_share`(12) · `e2e_preview`(9) · `e2e_upload`(6) · `e2e_account`(11) · `e2e_devtoken`(7)。
+`qr_validate`(11) · `e2e_p1`(11) · `e2e_share`(12) · `e2e_preview`(9) · `e2e_upload`(6) · `e2e_account`(11) · `e2e_devtoken`(7) · `e2e_fav`(5)。
 
 CI（`.github/workflows/ci.yml`）会在推送/PR 时自动起中间件、编译依赖与项目并跑集成测试。
 

@@ -43,6 +43,7 @@ private:
     void register_metrics_module();
     void register_token_module();
     void register_webdav_module();
+    void register_favorite_module();
 private:
     // 名字中最好不要带具体的实现细节
     // 方便以后修改具体的实现
