@@ -78,6 +78,10 @@
         <div class="search" id="searchWrap">
           <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
           <input class="input" id="searchInput" placeholder="搜索当前目录…">
+          <select class="select search-scope" id="searchScope" title="搜索范围">
+            <option value="cur">当前目录</option>
+            <option value="global">全部文件</option>
+          </select>
         </div>
         <div class="toolbar-right" id="filesToolbar">
           <select class="select" id="sortSelect" title="排序">

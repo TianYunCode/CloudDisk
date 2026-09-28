@@ -67,6 +67,8 @@
     favToggle: (itemType, itemId) => request('POST', '/api/favorite/toggle', { itemType, itemId }),
     favBatch:  (fileIds, folderIds) => request('POST', '/api/favorite/batch', { fileIds, folderIds }),
     favList:   () => request('GET', '/api/favorites'),
+    // 全局搜索
+    search:    (q) => request('GET', '/api/search?q=' + encodeURIComponent(q)),
     // 管理后台
     adminStats:       () => request('GET', '/api/admin/stats'),
     adminUsers:       (limit, offset) => request('GET', '/api/admin/users?limit=' + (limit || 100) + '&offset=' + (offset || 0)),

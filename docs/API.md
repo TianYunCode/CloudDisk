@@ -380,6 +380,12 @@ Body：`{ oldPassword, newPassword }`。校验原密码后以新盐重算 sha256
 | POST `/api/favorite/batch` `{fileIds[], folderIds[]}` | 批量收藏（`INSERT IGNORE`，仅对归属自己且未删除的条目生效），供多选工具栏使用 |
 | GET `/api/favorites` | 列出收藏的文件夹与文件（跳过已删除），含名称/大小/所在目录/收藏时间 |
 
+## 全局搜索
+
+| 方法 & 路径 | 说明 |
+|---|---|
+| GET `/api/search?q=&limit=` | 跨全部目录按名称搜索当前用户的文件夹与文件（均跳过已删除）。`q` 支持中文（服务端做 URL 解码），LIKE 元字符 `% _ \` 已转义防误通配；空 `q` 返回空列表；`limit` 默认 50、上限 200。返回 `{items:[{type,id,name,parentId,size}], count}`，文件夹在前 |
+
 ---
 
 ## 其它

@@ -1240,8 +1240,58 @@
   let searchTimer;
   $('searchInput').addEventListener('input', (e) => {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => { state.keyword = e.target.value.trim(); state.page = 0; clearSelection(); loadList(); }, 300);
+    const val = e.target.value.trim();
+    searchTimer = setTimeout(() => {
+      if ($('searchScope') && $('searchScope').value === 'global') {
+        runGlobalSearch(val);
+      } else {
+        state.keyword = val; state.page = 0; clearSelection(); loadList();
+      }
+    }, 300);
   });
+  { const sc = $('searchScope'); if (sc) sc.addEventListener('change', () => {
+    const val = $('searchInput').value.trim();
+    const global = sc.value === 'global';
+    $('searchInput').placeholder = global ? '搜索全部文件与文件夹…' : '搜索当前目录…';
+    if (global) runGlobalSearch(val);
+    else { state.keyword = val; state.page = 0; clearSelection(); loadList(); }
+  }); }
+  async function runGlobalSearch(q) {
+    const body = $('fileBody');
+    $('listExtra').innerHTML = '';
+    clearSelection();
+    if (!q) { body.innerHTML = '<tr><td colspan="5" class="empty-cell">输入关键词，跨全部目录搜索</td></tr>'; return; }
+    body.innerHTML = '<tr><td colspan="5" class="empty-cell">搜索中…</td></tr>';
+    try {
+      const r = await Api.search(q);
+      const items = r.items || [];
+      if (!items.length) { body.innerHTML = '<tr><td colspan="5" class="empty-cell">没有匹配「' + escapeHtml(q) + '」的项目</td></tr>'; return; }
+      body.innerHTML = items.map(it => {
+        const isFolder = it.type === 1;
+        const icon = isFolder
+          ? '<svg class="icon fav-ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+          : '<svg class="icon fav-ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+        const act = isFolder
+          ? '<button class="btn btn-sm btn-ghost" data-go="' + it.id + '">打开</button>'
+          : '<button class="btn btn-sm btn-ghost" data-gop="' + it.parentId + '">前往目录</button>' +
+            ' <button class="btn btn-sm btn-ghost" data-dl="' + it.id + '">下载</button>';
+        return '<tr>' +
+          '<td colspan="2">' + icon + escapeHtml(it.name) + '</td>' +
+          '<td class="hide-sm">' + (isFolder ? '文件夹' : humanSize(it.size)) + '</td>' +
+          '<td class="hide-sm muted">全局</td>' +
+          '<td class="col-actions">' + act + '</td>' +
+          '</tr>';
+      }).join('');
+      body.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.parentId = Number(b.dataset.go); resetSearchToCurrent(); showFiles(); });
+      body.querySelectorAll('[data-gop]').forEach(b => b.onclick = () => { state.parentId = Number(b.dataset.gop); resetSearchToCurrent(); showFiles(); });
+      body.querySelectorAll('[data-dl]').forEach(b => b.onclick = () => { location.href = Api.downloadUrl(Number(b.dataset.dl)); });
+    } catch (err) { body.innerHTML = '<tr><td colspan="5" class="empty-cell">搜索失败</td></tr>'; }
+  }
+  function resetSearchToCurrent() {
+    const sc = $('searchScope'); if (sc) sc.value = 'cur';
+    $('searchInput').value = ''; state.keyword = '';
+    $('searchInput').placeholder = '搜索当前目录…';
+  }
   $('sortSelect').addEventListener('change', (e) => {
     const [s, o] = e.target.value.split(':');
     state.sort = s; state.order = o; state.page = 0; loadList();

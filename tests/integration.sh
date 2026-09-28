@@ -399,6 +399,22 @@ curl -s -u "$P6U:$WT" -X PROPFIND -H 'Depth: 1' "$BASE/webdav/it/" | grep -q "a.
 [ "$(wcode -X DELETE "$BASE/webdav/it")" = "204" ] && ok "WebDAV DELETE 204" || bad "WebDAV DELETE"
 [ "$(wcode -X PROPFIND -H 'Depth: 0' "$BASE/webdav/it/")" = "404" ] && ok "WebDAV 删除后 404" || bad "WebDAV 删除后应 404"
 
+echo "== 全局搜索 =="
+SF=$(curl -s -X POST "$BASE/api/folder/create" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"搜索夹QZX","parentId":0}' | jq "d['data']['id']")
+# 中文关键字 (URL 编码), 应命中该文件夹
+SC=$(curl -s -G -H "Authorization: Bearer $TOKEN" "$BASE/api/search" --data-urlencode "q=搜索夹QZX" | jq "d['data']['count']")
+[ "$SC" -ge 1 ] 2>/dev/null && ok "全局搜索中文命中 ($SC)" || bad "搜索未命中" "$SC"
+# 部分 ASCII 关键字
+SC2=$(curl -s -G -H "Authorization: Bearer $TOKEN" "$BASE/api/search" --data-urlencode "q=QZX" | jq "d['data']['count']")
+[ "$SC2" -ge 1 ] 2>/dev/null && ok "部分关键字命中 ($SC2)" || bad "部分关键字未命中" "$SC2"
+# 空查询 -> 0 项
+SC3=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/search?q=" | jq "len(d['data']['items'])")
+[ "$SC3" = "0" ] && ok "空查询返回 0 项" || bad "空查询异常" "$SC3"
+# LIKE 元字符不被当通配 (搜 % 不应匹配全部)
+SC4=$(curl -s -G -H "Authorization: Bearer $TOKEN" "$BASE/api/search" --data-urlencode "q=%" | jq "len(d['data']['items'])")
+[ "$SC4" = "0" ] && ok "LIKE 元字符已转义 (% 不通配)" || bad "元字符未转义" "$SC4"
+assert_code GET /api/search 401    # 需鉴权
+
 echo "== 收藏夹 =="
 FAVFID=$(curl -s -X POST "$BASE/api/folder/create" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"收藏测试夹","parentId":0}' | jq "d['data']['id']")
 FAV1=$(curl -s -X POST "$BASE/api/favorite/toggle" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "{\"itemType\":1,\"itemId\":$FAVFID}" | jq "d['data']['favorited']")

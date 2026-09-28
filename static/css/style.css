@@ -126,7 +126,7 @@ a { color: var(--brand-1); text-decoration: none; }
 .sidebar {
   background: var(--surface); border-right: 1px solid var(--border);
   padding: 24px 20px; display: flex; flex-direction: column; gap: 22px;
-  position: sticky; top: 0; height: 100vh;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
 .side-brand { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 800; }
 .side-logo { width: 40px; height: 40px; display: grid; place-items: center; background: var(--brand-grad); border-radius: 12px; color: #fff; box-shadow: 0 8px 18px -8px rgba(99,102,241,.8); }
@@ -434,3 +434,7 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--brand-1)
 
 /* 收藏视图 */
 .fav-ic { width: 18px; height: 18px; vertical-align: -3px; margin-right: 8px; color: var(--brand-1); }
+
+/* 全局搜索范围选择器 */
+.search-scope { border: none; background: transparent; font-size: 13px; color: var(--muted); cursor: pointer; padding: 2px 4px; }
+.search-scope:focus { outline: none; }

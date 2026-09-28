@@ -541,6 +541,7 @@ void CloudiskServer::register_modules()
     register_token_module();
     register_webdav_module();
     register_favorite_module();
+    register_search_module();
 }
 
 // ----- 静态资源与页面 ----------------------------------------------------------
@@ -833,7 +834,7 @@ void CloudiskServer::register_filelist_module()
         long long limit    = SqlUtil::to_uint(req->has_query("limit")  ? req->query("limit")  : "", 20, 100);
         long long offset   = SqlUtil::to_uint(req->has_query("offset") ? req->query("offset") : "", 0, 1000000000LL);
         string keyword     = req->has_query("keyword") ? req->query("keyword") : "";
-
+        keyword = wfrest::CodeUtil::url_decode(keyword);   // 支持中文关键字 (wfrest 不自动解码)
         string sortReq = req->has_query("sort") ? req->query("sort") : "created_at";
         string sortCol = "created_at";
         if (sortReq == "filename" || sortReq == "size" || sortReq == "created_at" || sortReq == "last_update")
@@ -3332,6 +3333,56 @@ void CloudiskServer::register_favorite_module()
                     }
                 }
                 api::ok(resp, {{"items", *itemsPtr}}, "ok");
+            });
+        });
+    });
+}
+
+// =============================================================================
+// 全局搜索: 跨全部目录按名称匹配文件与文件夹
+// =============================================================================
+void CloudiskServer::register_search_module()
+{
+    m_server.GET("/api/search", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        string q = req->has_query("q") ? req->query("q") : "";
+        q = wfrest::CodeUtil::url_decode(q);   // wfrest 不自动解码 query, 需手动 (支持中文)
+        // 去除首尾空白
+        auto trim = [](string s) {
+            size_t a = s.find_first_not_of(" \t\r\n");
+            size_t b = s.find_last_not_of(" \t\r\n");
+            return a == string::npos ? string() : s.substr(a, b - a + 1);
+        };
+        q = trim(q);
+        if (q.empty()) { api::ok(resp, {{"items", nlohmann::json::array()}, {"query", ""}}, "ok"); return; }
+        long long limit = SqlUtil::to_uint(req->has_query("limit") ? req->query("limit") : "", 50, 200);
+        long long uid = user.id; string su = std::to_string(uid), sl = std::to_string(limit);
+        // 转义 LIKE 元字符, 防止 % _ 被解释为通配
+        string kw = SqlUtil::escape(q);
+        string esc; esc.reserve(kw.size());
+        for (char c : kw) { if (c == '%' || c == '_' || c == '\\') esc += '\\'; esc += c; }
+        string pat = "'%" + esc + "%' ESCAPE '\\\\'";
+        string fq = "SELECT id, name, parent_id FROM tbl_folder WHERE deleted=0 AND uid=" + su +
+                    " AND name LIKE " + pat + " ORDER BY name LIMIT " + sl;
+        push_mysql(series, fq, [resp, su, pat, sl](WFMySQLTask* t) {
+            auto items = std::make_shared<nlohmann::json>(nlohmann::json::array());
+            if (mysql_ok(t)) {
+                MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
+                while (c.fetch_row(row))
+                    items->push_back({ {"type", 1}, {"id", cell_ll(row[0])}, {"name", row[1].as_string()},
+                                       {"parentId", cell_ll(row[2])}, {"size", 0} });
+            }
+            string flq = "SELECT id, filename, parent_id, size FROM tbl_file WHERE deleted=0 AND uid=" + su +
+                         " AND filename LIKE " + pat + " ORDER BY filename LIMIT " + sl;
+            push_mysql(series_of(t), flq, [resp, items](WFMySQLTask* t2) {
+                if (mysql_ok(t2)) {
+                    MySQLResultCursor c{ t2->get_resp() }; std::vector<MySQLCell> row;
+                    while (c.fetch_row(row))
+                        items->push_back({ {"type", 0}, {"id", cell_ll(row[0])}, {"name", row[1].as_string()},
+                                           {"parentId", cell_ll(row[2])}, {"size", (long long)row[3].as_ulonglong()} });
+                }
+                api::ok(resp, {{"items", *items}, {"count", (long long)items->size()}}, "ok");
             });
         });
     });
