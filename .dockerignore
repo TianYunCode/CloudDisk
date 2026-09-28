@@ -1,0 +1,12 @@
+build/
+storage/
+logs/
+*.log
+.git/
+node_modules/
+tests/e2e/node_modules/
+scripts/oss.env
+*.o
+server
+UserService
+backup

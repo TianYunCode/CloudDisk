@@ -1,0 +1,105 @@
+# CloudVault CI: 编译依赖与项目, 起中间件, 跑集成 + 端到端测试
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: "1234"
+          MYSQL_DATABASE: "test"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p1234"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+      consul:
+        image: hashicorp/consul:1.18
+        ports:
+          - 8500:8500
+      rabbitmq:
+        image: rabbitmq:3-management
+        ports:
+          - 5672:5672
+
+    env:
+      LIBRARY_PATH: /usr/local/lib
+      LD_LIBRARY_PATH: /usr/local/lib
+      CPLUS_INCLUDE_PATH: /usr/local/include
+      MYSQL_URL: "mysql://root:1234@127.0.0.1/test"
+      CONSUL_URL: "http://127.0.0.1:8500"
+      RABBITMQ_URL: "amqp://guest:guest@127.0.0.1:5672/%2f"
+      JWT_SECRET: "ci-only-non-secret-value"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git pkg-config \
+            libssl-dev zlib1g-dev protobuf-compiler libprotobuf-dev \
+            liblz4-dev libsnappy-dev librabbitmq-dev libboost-all-dev \
+            libjansson-dev libcurl4-openssl-dev libmysqlclient-dev \
+            default-mysql-client python3
+
+      - name: 缓存自建依赖
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: /usr/local
+          key: deps-${{ runner.os }}-v1
+
+      - name: 编译上游依赖 (未命中缓存时)
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          build() { cmake -S "$1" -B "$1/build" -DCMAKE_BUILD_TYPE=Release ${2:-}; \
+                    cmake --build "$1/build" -j"$(nproc)"; sudo cmake --install "$1/build"; sudo ldconfig; }
+          git clone --depth 1 https://github.com/sogou/workflow.git && build workflow
+          git clone --depth 1 https://github.com/sogou/srpc.git && build srpc
+          git clone --depth 1 https://github.com/wfrest/wfrest.git && build wfrest
+          git clone --depth 1 https://github.com/nlohmann/json.git && sudo cp -r json/single_include/nlohmann /usr/local/include/
+          git clone --depth 1 https://github.com/alanxz/SimpleAmqpClient.git && build SimpleAmqpClient
+          git clone --depth 1 https://github.com/benmcollins/libjwt.git && build libjwt "-DENABLE_PIC=ON"
+          git clone --depth 1 --recursive https://github.com/oliora/ppconsul.git && build ppconsul
+          git clone --depth 1 https://github.com/aliyun/aliyun-oss-cpp-sdk.git && build aliyun-oss-cpp-sdk
+
+      - name: 构建项目
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          make -j"$(nproc)" server UserService backup
+
+      - name: 初始化数据库
+        run: mysql -h 127.0.0.1 -uroot -p1234 test < scripts/init_db.sql
+
+      - name: 启动服务
+        run: |
+          export LD_LIBRARY_PATH=/usr/local/lib
+          ./UserService > userservice.log 2>&1 &
+          ./server > server.log 2>&1 &
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:8888/metrics >/dev/null && break; sleep 1; done
+
+      - name: 集成测试
+        run: bash tests/integration.sh
+
+      - name: 上传日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-logs
+          path: |
+            server.log
+            userservice.log

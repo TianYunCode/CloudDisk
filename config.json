@@ -1,0 +1,12 @@
+{
+  "http_port": 8888,
+  "srpc_port": 1414,
+  "mysql_url": "mysql://root:1234@localhost/test",
+  "rabbitmq_url": "amqp://guest:guest@localhost:5672/%2f",
+  "consul_url": "http://127.0.0.1:8500",
+  "jwt_secret": "change-me-to-a-long-random-secret-please",
+  "storage_dir": "storage",
+  "log_file": "logs/clouddisk.log",
+  "max_file_size": 104857600,
+  "user_quota": 1073741824
+}

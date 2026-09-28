@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudVault · 分享</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%236366f1' d='M6 19a5 5 0 0 1-.9-9.9A6 6 0 0 1 17 8a4.5 4.5 0 0 1 1 8.9V19z'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topbar" style="padding:16px 24px;border-bottom:1px solid var(--border)">
+    <div class="side-brand" style="margin:0">
+      <span class="side-logo"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M6 19a5 5 0 0 1-.9-9.9A6 6 0 0 1 17 8a4.5 4.5 0 0 1 1 8.9"/></svg></span>
+      <div>CloudVault<small>文件分享</small></div>
+    </div>
+    <div class="side-spacer"></div>
+    <a class="btn btn-ghost btn-sm" id="homeLink" href="/">进入云盘</a>
+  </header>
+
+  <main class="share-page">
+    <div class="share-card" id="spContent">
+      <div class="empty"><div class="skeleton" style="width:60%;height:20px;margin:0 auto"></div></div>
+    </div>
+  </main>
+
+  <div id="modalRoot"></div>
+  <div id="toasts"></div>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/share.js"></script>
+</body>
+</html>

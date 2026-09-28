@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudVault · 我的云盘</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%236366f1' d='M6 19a5 5 0 0 1-.9-9.9A6 6 0 0 1 17 8a4.5 4.5 0 0 1 1 8.9V19z'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="app">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="side-brand">
+        <span class="side-logo">
+          <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M6 19a5 5 0 0 1-.9-9.9A6 6 0 0 1 17 8a4.5 4.5 0 0 1 1 8.9"/></svg>
+        </span>
+        <div>CloudVault<small>企业云盘</small></div>
+      </div>
+
+      <div class="user-card">
+        <div class="avatar" id="avatar">?</div>
+        <div class="user-name" id="userName">—</div>
+        <div class="user-since" id="userSince">—</div>
+      </div>
+
+      <nav class="side-nav">
+        <button class="nav-item active" id="navFiles" type="button">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>我的文件</span>
+        </button>
+        <button class="nav-item" id="navTrash" type="button">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          <span>回收站</span>
+        </button>
+        <button class="nav-item" id="navShares" type="button">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>
+          <span>我的分享</span>
+        </button>
+        <button class="nav-item" id="navAccount" type="button">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+          <span>账户设置</span>
+        </button>
+        <button class="nav-item" id="navAdmin" type="button" hidden>
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6z"/></svg>
+          <span>管理后台</span>
+        </button>
+      </nav>
+
+      <div class="storage-box">
+        <div class="storage-row"><span>存储用量</span><span id="storagePct">0%</span></div>
+        <div class="storage-bar"><div class="storage-fill" id="storageFill"></div></div>
+        <div class="storage-meta"><span id="storageUsed">0 B</span><span id="storageTotal">/ 1 GB</span></div>
+        <div class="storage-meta"><span id="fileCount">0 个文件</span><span></span></div>
+      </div>
+
+      <div class="side-spacer"></div>
+      <div class="side-foot">
+        <button class="btn btn-ghost" id="themeToggle" type="button">
+          <svg class="icon" viewBox="0 0 24 24" id="themeIcon"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          <span id="themeLabel">深色模式</span>
+        </button>
+        <button class="btn btn-ghost" id="logoutBtn" type="button">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
+          退出登录
+        </button>
+      </div>
+    </aside>
+
+    <!-- 主区域 -->
+    <main class="main">
+      <div class="topbar">
+        <h1 id="pageTitle">我的文件</h1>
+        <div class="search" id="searchWrap">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="input" id="searchInput" placeholder="搜索当前目录…">
+        </div>
+        <div class="toolbar-right" id="filesToolbar">
+          <select class="select" id="sortSelect" title="排序">
+            <option value="created_at:desc">最新上传</option>
+            <option value="created_at:asc">最早上传</option>
+            <option value="filename:asc">名称 A→Z</option>
+            <option value="filename:desc">名称 Z→A</option>
+            <option value="size:desc">从大到小</option>
+            <option value="size:asc">从小到大</option>
+          </select>
+          <button class="btn btn-ghost" id="newFolderBtn" title="新建文件夹">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/><path d="M12 10v6M9 13h6"/></svg>
+            新建文件夹
+          </button>
+          <button class="btn btn-ghost" id="offlineBtn" title="从网址离线下载到网盘">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            离线下载
+          </button>
+          <button class="btn btn-ghost" id="folderUploadBtn" title="上传整个文件夹">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/><path d="M12 11v6M9 14l3-3 3 3"/></svg>
+            上传文件夹
+          </button>
+          <button class="btn btn-primary" id="uploadBtn">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            上传文件
+          </button>
+          <input type="file" id="fileInput" multiple hidden>
+          <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+        </div>
+      </div>
+
+      <!-- ========== 文件视图 ========== -->
+      <section id="filesView">
+        <!-- 面包屑 -->
+        <nav class="crumbs" id="breadcrumb"></nav>
+
+        <!-- 批量操作条 -->
+        <div class="batchbar" id="batchBar" hidden>
+          <span class="batch-count" id="batchCount">已选 0 项</span>
+          <div class="batch-actions">
+            <button class="btn btn-sm btn-ghost" id="batchDownload"><svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>下载</button>
+            <button class="btn btn-sm btn-ghost" id="batchMove"><svg class="icon" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>移动到</button>
+            <button class="btn btn-sm btn-danger" id="batchDelete"><svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>删除</button>
+            <button class="btn btn-sm btn-ghost" id="batchClear">取消</button>
+          </div>
+        </div>
+
+        <!-- 拖拽上传区 -->
+        <div class="dropzone" id="dropzone">
+          <svg class="icon dz-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v13"/></svg>
+          <div class="dz-title">拖拽文件到此处，或点击选择</div>
+          <div class="dz-sub">上传到当前目录；相同内容的文件将自动秒传</div>
+        </div>
+
+        <!-- 上传进度 -->
+        <div class="uploads" id="uploads"></div>
+
+        <!-- 文件列表 -->
+        <div class="card">
+          <table class="files">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="selAll" title="全选"></th>
+                <th data-sort="filename">名称</th>
+                <th data-sort="size" class="hide-sm">大小</th>
+                <th data-sort="created_at" class="hide-sm">修改时间</th>
+                <th class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody id="fileBody"></tbody>
+          </table>
+          <div id="listExtra"></div>
+        </div>
+      </section>
+
+      <!-- ========== 回收站视图 ========== -->
+      <section id="trashView" hidden>
+        <div class="trash-head">
+          <p class="trash-note">回收站中的项目可随时恢复；彻底删除后不可找回。</p>
+          <button class="btn btn-sm btn-danger" id="emptyTrashBtn">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            清空回收站
+          </button>
+        </div>
+        <div class="card">
+          <table class="files">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th class="hide-sm">大小</th>
+                <th class="hide-sm">删除时间</th>
+                <th class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody id="trashBody"></tbody>
+          </table>
+          <div id="trashExtra"></div>
+        </div>
+      </section>
+
+      <!-- ========== 我的分享视图 ========== -->
+      <section id="sharesView" hidden>
+        <div class="trash-head">
+          <p class="trash-note">这里管理你创建的所有分享链接；取消后链接立即失效。</p>
+        </div>
+        <div class="card">
+          <table class="files">
+            <thead>
+              <tr>
+                <th>分享内容</th>
+                <th class="hide-sm">浏览</th>
+                <th class="hide-sm">下载</th>
+                <th class="hide-sm">创建时间</th>
+                <th class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody id="shareBody"></tbody>
+          </table>
+          <div id="sharesExtra"></div>
+        </div>
+      </section>
+
+      <!-- ========== 账户设置 ========== -->
+      <section id="accountView" hidden>
+        <div class="acct-grid">
+          <div class="card acct-card">
+            <h3 class="acct-h">个人资料</h3>
+            <div class="acct-avatar-row">
+              <img id="acctAvatar" class="acct-avatar" alt="头像" hidden>
+              <div id="acctAvatarFallback" class="acct-avatar acct-avatar-fb">?</div>
+              <div>
+                <button class="btn btn-ghost" id="avatarUploadBtn" type="button">更换头像</button>
+                <input type="file" id="avatarInput" accept="image/*" hidden>
+                <p class="acct-hint">支持 JPG/PNG，自动裁剪为 256px。</p>
+              </div>
+            </div>
+            <div class="field"><label>昵称</label><input class="input" id="acctNickname" maxlength="64" placeholder="设置一个昵称"></div>
+            <div class="field"><label>邮箱</label><input class="input" id="acctEmail" maxlength="128" placeholder="you@example.com"></div>
+            <button class="btn btn-primary" id="saveProfileBtn" type="button">保存资料</button>
+          </div>
+
+          <div class="card acct-card">
+            <h3 class="acct-h">修改密码</h3>
+            <div class="field"><label>原密码</label><input class="input" type="password" id="oldPw" autocomplete="current-password"></div>
+            <div class="field"><label>新密码</label><input class="input" type="password" id="newPw" autocomplete="new-password" placeholder="6-64 位"></div>
+            <div class="field"><label>确认新密码</label><input class="input" type="password" id="newPw2" autocomplete="new-password"></div>
+            <button class="btn btn-primary" id="changePwBtn" type="button">修改密码</button>
+          </div>
+
+          <div class="card acct-card">
+            <h3 class="acct-h">两步验证 (2FA)</h3>
+            <p class="acct-hint" id="tfaStatus">加载中…</p>
+            <div id="tfaSetupArea"></div>
+            <div class="acct-btns">
+              <button class="btn btn-primary" id="tfaEnableBtn" type="button" hidden>启用两步验证</button>
+              <button class="btn btn-ghost" id="tfaDisableBtn" type="button" hidden>关闭两步验证</button>
+            </div>
+          </div>
+
+          <div class="card acct-card acct-wide">
+            <h3 class="acct-h">开发者 · API 令牌与 WebDAV</h3>
+            <p class="acct-hint">个人访问令牌可用于脚本、命令行与 WebDAV 客户端。令牌明文仅在创建时显示一次，请妥善保存。</p>
+            <div class="tok-create">
+              <input class="input" id="tokName" maxlength="64" placeholder="令牌名称，如 rclone">
+              <select class="select" id="tokExpiry">
+                <option value="0">永不过期</option>
+                <option value="30">30 天</option>
+                <option value="90">90 天</option>
+                <option value="365">365 天</option>
+              </select>
+              <button class="btn btn-primary" id="tokCreateBtn" type="button">生成令牌</button>
+            </div>
+            <div id="tokNew"></div>
+            <table class="files tok-table"><thead><tr>
+              <th>名称</th><th class="hide-sm">前缀</th><th class="hide-sm">最近使用</th><th class="hide-sm">过期</th><th class="col-actions">操作</th>
+            </tr></thead><tbody id="tokBody"></tbody></table>
+            <div class="webdav-box">
+              <h4 class="acct-h" style="font-size:14px;margin-top:18px">WebDAV 挂载</h4>
+              <p class="acct-hint">在 rclone / Finder / 文件资源管理器中使用以下地址，账号为你的用户名，密码填 API 令牌（或账户密码）。</p>
+              <code class="tfa-secret" id="webdavUrl">—</code>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 管理后台 ========== -->
+      <section id="adminView" hidden>
+        <div class="admin-tabs">
+          <button class="admin-tab active" data-atab="stats" type="button">概览</button>
+          <button class="admin-tab" data-atab="users" type="button">用户管理</button>
+          <button class="admin-tab" data-atab="audit" type="button">审计日志</button>
+        </div>
+        <div id="adminStats" class="admin-pane"></div>
+        <div id="adminUsers" class="admin-pane" hidden>
+          <div class="card"><table class="files"><thead><tr>
+            <th>用户</th><th class="hide-sm">角色</th><th class="hide-sm">用量 / 配额</th>
+            <th class="hide-sm">2FA</th><th class="hide-sm">注册时间</th><th class="col-actions">操作</th>
+          </tr></thead><tbody id="adminUserBody"></tbody></table></div>
+        </div>
+        <div id="adminAudit" class="admin-pane" hidden>
+          <div class="card"><table class="files"><thead><tr>
+            <th>时间</th><th>用户</th><th>动作</th><th class="hide-sm">详情</th><th class="hide-sm">IP</th>
+          </tr></thead><tbody id="adminAuditBody"></tbody></table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 全屏拖拽提示 -->
+  <div id="dragOverlay"><div class="box">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v13"/></svg>
+    <div style="font-size:18px;font-weight:700">松开鼠标即可上传到当前目录</div>
+  </div></div>
+
+  <div id="modalRoot"></div>
+  <div id="previewRoot"></div>
+  <div id="toasts"></div>
+
+  <script src="/static/js/sha256.js"></script>
+  <script src="/static/js/qr.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+# =============================================================================
+# CloudVault 一键部署编排: MySQL + Consul + RabbitMQ + 应用
+#   启动:  docker compose up -d --build
+#   访问:  http://localhost:8888/
+# =============================================================================
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: "1234"
+      MYSQL_DATABASE: "test"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p1234"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  consul:
+    image: hashicorp/consul:1.18
+    command: agent -dev -client=0.0.0.0
+    ports:
+      - "8500:8500"
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: "guest"
+      RABBITMQ_DEFAULT_PASS: "guest"
+    ports:
+      - "15672:15672"
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      consul:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+    environment:
+      MYSQL_HOST: "mysql"
+      MYSQL_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: "1234"
+      MYSQL_DATABASE: "test"
+      MYSQL_URL: "mysql://root:1234@mysql/test"
+      CONSUL_HOST: "consul"
+      CONSUL_PORT: "8500"
+      CONSUL_URL: "http://consul:8500"
+      RABBITMQ_HOST: "rabbitmq"
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/%2f"
+      # 生产务必用强随机值覆盖
+      JWT_SECRET: "change-me-to-a-long-random-secret"
+    ports:
+      - "8888:8888"
+    volumes:
+      - app_storage:/app/storage
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  app_storage:
