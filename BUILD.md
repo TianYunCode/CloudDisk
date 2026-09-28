@@ -92,7 +92,7 @@ cd /home/terminal/project/CloudDisk
 export LIBRARY_PATH=/usr/local/lib LD_LIBRARY_PATH=/usr/local/lib CPLUS_INCLUDE_PATH=/usr/local/include
 cmake -B build -DCMAKE_BUILD_TYPE=Debug
 make -C build -j"$(nproc)"
-# 产物: ./server  ./UserService  ./backup （输出到项目根目录）
+# 产物: ./bin/server  ./bin/UserService  ./bin/backup （输出到 bin/ 目录）
 ```
 
 ## 5. 初始化 MySQL
@@ -117,8 +117,8 @@ bash scripts/start.sh
 ```bash
 export LD_LIBRARY_PATH=/usr/local/lib
 consul agent -dev -client=127.0.0.1 &     # :8500
-./UserService &                           # :1414, 注册到 Consul
-./server &                                # :8888
+./bin/UserService &                       # :1414, 注册到 Consul
+./bin/server &                            # :8888
 ```
 
 浏览器打开 <http://127.0.0.1:8888/> 注册 → 登录 → 拖拽上传 / 下载。

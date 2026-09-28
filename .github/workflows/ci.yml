@@ -89,8 +89,8 @@ jobs:
       - name: 启动服务
         run: |
           export LD_LIBRARY_PATH=/usr/local/lib
-          ./UserService > userservice.log 2>&1 &
-          ./server > server.log 2>&1 &
+          ./bin/UserService > userservice.log 2>&1 &
+          ./bin/server > server.log 2>&1 &
           for _ in $(seq 1 30); do curl -sf http://127.0.0.1:8888/metrics >/dev/null && break; sleep 1; done
 
       - name: 集成测试

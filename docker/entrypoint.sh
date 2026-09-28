@@ -34,4 +34,4 @@ echo "[entrypoint] 启动 backup ..."
 ./backup >/app/backup.log 2>&1 &
 
 echo "[entrypoint] 启动 server (前台) ..."
-exec ./server
+exec ./bin/server

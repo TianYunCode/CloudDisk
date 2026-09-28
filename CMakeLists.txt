@@ -10,33 +10,32 @@ project(CloudDisk)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 设置可执行程序生成的路径
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ../)
+# 可执行程序输出到 bin/ (与源码目录 server/ 分离; 运行时仍从仓库根目录启动)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
+# 分层源码目录的头文件搜索路径 (使裸 #include "X.h" 跨层解析; 根目录用于 third_party/*)
+set(CLOUDDISK_INCLUDE_DIRS
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/server/gateway
+    ${CMAKE_SOURCE_DIR}/server/common
+    ${CMAKE_SOURCE_DIR}/server/config
+    ${CMAKE_SOURCE_DIR}/server/util
+    ${CMAKE_SOURCE_DIR}/server/infra
+    ${CMAKE_SOURCE_DIR}/server/rpc
+)
 
-# 生成的可执行程序
+# =============================== server (HTTP 网关) ==========================
 add_executable(server
-    CloudiskServer.cpp
-    CryptoUtil.cpp
-    Thumbnailer.cpp
-    UserService.pb.cpp
-    main.cpp
+    server/gateway/CloudiskServer.cpp
+    server/gateway/main.cpp
+    server/util/CryptoUtil.cpp
+    server/util/Thumbnailer.cpp
+    server/rpc/UserService.pb.cpp
 )
-
-# 添加宏定义: -DDEBUG
-target_compile_definitions(server PRIVATE
-   DEBUG
-)
-
-# 设置编译选项
-target_compile_options(server PRIVATE
-    -g
-)
-
-# -lcrypto -lssl -ljwt -lwfrest
-# server: target的名字
-# PRIVATE: 传播属性, 填PRIVATE即可，固定的用法
-target_link_libraries(server PRIVATE 
+target_include_directories(server PRIVATE ${CLOUDDISK_INCLUDE_DIRS})
+target_compile_definitions(server PRIVATE DEBUG)
+target_compile_options(server PRIVATE -g)
+target_link_libraries(server PRIVATE
     wfrest
     workflow
     SimpleAmqpClient
@@ -49,25 +48,15 @@ target_link_libraries(server PRIVATE
     crypto
 )
 
-# 添加可执行程序 backup
-add_executable(backup 
-    OssManager.cpp
-    backup.cpp
+# =============================== backup (OSS 异步备份消费者) ==================
+add_executable(backup
+    server/infra/OssManager.cpp
+    server/backup-service/backup.cpp
 )
-
-# 添加宏定义: -DDEBUG
-target_compile_definitions(backup PRIVATE
-   DEBUG
-)
-
-# 设置编译选项
-target_compile_options(backup PRIVATE
-    -g
-    -fno-rtti
-)
-
-# 设置要链接的库
-target_link_libraries(backup PRIVATE 
+target_include_directories(backup PRIVATE ${CLOUDDISK_INCLUDE_DIRS})
+target_compile_definitions(backup PRIVATE DEBUG)
+target_compile_options(backup PRIVATE -g -fno-rtti)
+target_link_libraries(backup PRIVATE
     SimpleAmqpClient
     alibabacloud-oss-cpp-sdk
     curl
@@ -75,24 +64,15 @@ target_link_libraries(backup PRIVATE
     pthread
 )
 
-# 添加可执行程序 UserService
+# =============================== UserService (srpc 微服务) ===================
 add_executable(UserService
-    UserService.cpp
-    UserService.pb.cpp
-    CryptoUtil.cpp
+    server/user-service/UserService.cpp
+    server/rpc/UserService.pb.cpp
+    server/util/CryptoUtil.cpp
 )
-
-# 添加宏定义: -DDEBUG
-target_compile_definitions(UserService PRIVATE
-   DEBUG
-)
-
-# 设置编译选项
-target_compile_options(UserService PRIVATE
-    -g
-)
-
-# 设置要链接的库
+target_include_directories(UserService PRIVATE ${CLOUDDISK_INCLUDE_DIRS})
+target_compile_definitions(UserService PRIVATE DEBUG)
+target_compile_options(UserService PRIVATE -g)
 target_link_libraries(UserService PRIVATE
     ppconsul
     srpc

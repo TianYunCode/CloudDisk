@@ -37,7 +37,7 @@ if [ "$cmd" != "--no-build" ]; then
     tail -n 25 /tmp/cv_make.log /tmp/cv_cmake.log
     exit 1
   fi
-  echo "    编译完成: ./server ./UserService ./backup"
+  echo "    编译完成: ./bin/server ./bin/UserService ./bin/backup"
 else
   echo "==> [1/3] 跳过编译 (--no-build)"
 fi

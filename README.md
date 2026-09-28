@@ -188,15 +188,20 @@ CI（`.github/workflows/ci.yml`）会在推送/PR 时自动起中间件、编译
 
 ```
 CloudDisk/
-├── config.json            # 运行配置
-├── Config.h / Log.h       # 配置单例 / 日志 (header-only)
-├── SqlUtil.h / ApiResp.h  # SQL 转义校验 / JSON 响应封装 + 鉴权 + 令牌解析 (header-only)
-├── CloudiskServer.*       # HTTP 网关：路由与全部文件 API / 令牌 / WebDAV / 指标
-├── UserService.*          # 用户微服务 (srpc + protobuf)
-├── CryptoUtil.*           # 加盐哈希 / JWT
-├── OssManager.* / backup.cpp  # OSS 备份消费者
+├── config.json            # 运行配置 (env > config.json > 默认)
+├── CMakeLists.txt         # 构建 (产物输出到 bin/)
+├── server/                # 服务端 C++ 后端 (分层)
+│   ├── gateway/           # HTTP 网关：CloudiskServer.* / main.cpp / ApiResp.h
+│   ├── user-service/      # 用户微服务 (srpc)
+│   ├── backup-service/    # OSS 异步备份消费者
+│   ├── rpc/               # UserService.proto 及生成代码
+│   ├── common/            # 跨切面：Log.h / User.h
+│   ├── config/            # Config.h
+│   ├── util/              # CryptoUtil.* / SqlUtil.h / Thumbnailer.*
+│   └── infra/             # OssManager.* (外部集成)
 ├── web/                   # Web 前端 (index.html / app.html / share.html / css / js)
 ├── app/                   # 移动端占位：android/ ios/ (仅 README，Web 稳定后实现)
+├── bin/                   # 编译产物 server / UserService / backup (gitignore)
 ├── scripts/               # init_db.sql / migrations/ / start.sh / stop.sh / oss.env.example
 ├── Dockerfile / docker-compose.yml / docker/  # 容器化一键部署
 ├── .github/workflows/ci.yml   # 持续集成

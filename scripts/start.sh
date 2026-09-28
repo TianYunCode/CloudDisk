@@ -37,7 +37,7 @@ curl -s http://127.0.0.1:8500/v1/status/leader >/dev/null && echo "    Consul OK
 
 echo "[4/5] 启动 UserService (SRPC :1414, 注册到 Consul) ..."
 cd "$PROJ_DIR"
-setsid nohup ./UserService > "$LOG_DIR/userservice.log" 2>&1 < /dev/null &
+setsid nohup ./bin/UserService > "$LOG_DIR/userservice.log" 2>&1 < /dev/null &
 ok=""
 for i in 1 2 3 4 5 6; do
   sleep 2
@@ -46,7 +46,7 @@ done
 [ -n "$ok" ] && echo "    UserService 已注册 (passing)" || echo "    UserService 注册检查失败, 见 $LOG_DIR/userservice.log"
 
 echo "[5/5] 启动 HTTP 网关 server (:8888) ..."
-setsid nohup ./server > "$LOG_DIR/server.log" 2>&1 < /dev/null &
+setsid nohup ./bin/server > "$LOG_DIR/server.log" 2>&1 < /dev/null &
 sleep 3
 ss -ltn 2>/dev/null | grep -q ':8888' && echo "    server 监听 :8888" || echo "    server 未监听, 见 $LOG_DIR/server.log"
 
@@ -54,7 +54,7 @@ ss -ltn 2>/dev/null | grep -q ':8888' && echo "    server 监听 :8888" || echo 
 if [ -f "$PROJ_DIR/scripts/oss.env" ]; then
   echo "[+]  检测到 scripts/oss.env, 启动 backup (OSS 异步备份) ..."
   set -a; . "$PROJ_DIR/scripts/oss.env"; set +a
-  setsid nohup ./backup > "$LOG_DIR/backup.log" 2>&1 < /dev/null &
+  setsid nohup ./bin/backup > "$LOG_DIR/backup.log" 2>&1 < /dev/null &
   sleep 1
   echo "    backup 已启动 (bucket: ${OSS_BUCKET:-未设置}), 见 $LOG_DIR/backup.log"
 fi

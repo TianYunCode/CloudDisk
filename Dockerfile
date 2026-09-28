@@ -96,8 +96,8 @@ COPY --from=builder /usr/local/lib /usr/local/lib
 RUN ldconfig
 
 WORKDIR /app
-# 三个可执行文件生成在源码根 (CMAKE_RUNTIME_OUTPUT_DIRECTORY=../)
-COPY --from=builder /app/server /app/UserService /app/backup /app/
+# 三个可执行文件生成在 bin/ (CMAKE_RUNTIME_OUTPUT_DIRECTORY=${CMAKE_SOURCE_DIR}/bin)
+COPY --from=builder /app/bin /app/bin
 COPY --from=builder /app/web /app/web
 COPY --from=builder /app/scripts /app/scripts
 COPY --from=builder /app/config.json /app/config.json

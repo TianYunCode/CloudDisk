@@ -134,4 +134,6 @@ CloudDisk/
 ## 6. 当前进度
 
 - Stage 0：✅ 完成（功能冻结于「用户活动日志」）。
-- Stage 1：进行中——已创建 `app/android`、`app/ios` 占位与本蓝图；前端目录迁移随本阶段落地。
+- Stage 1：✅ 完成——`app/android`、`app/ios` 占位；前端 `static/` → `web/`；本蓝图文档。
+- Stage 2：✅ 完成——C++ 源码迁入 `server/` 分层树（gateway/user-service/backup-service/rpc/common/config/util/infra），产物输出到 `bin/`；同步更新 CMake（`target_include_directories` 跨层解析裸 include）、Dockerfile、`.gitignore`/`.dockerignore`、`scripts/start.sh`、`docker/entrypoint.sh`、CI、BUILD.md。全量回归：构建干净、集成 173/0、e2e 14 套全绿。
+- Stage 3：下一步——拆分 3800 行单体 `server/gateway/CloudiskServer.cpp` 为分层翻译单元。
