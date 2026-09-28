@@ -399,6 +399,21 @@ Body：`{ oldPassword, newPassword }`。校验原密码后以新盐重算 sha256
 
 ---
 
+## 文件标签
+
+用户自定义彩色标签，多对多关联文件；文件被彻底删除时其标签关联自动清理。文件列表 `GET /api/file/list` 的每个文件项额外返回 `tagIds:[...]`。
+
+| 方法 & 路径 | 说明 |
+|---|---|
+| GET `/api/tags` | 列出当前用户的标签：`{tags:[{id,name,color,count}], count}`，`count` 为该标签关联的文件数 |
+| POST `/api/tags` `{name, color?}` | 创建标签；名称 1–64 字符且用户内唯一（同名幂等返回原 id 并更新颜色）；`color` 为 `#rgb`/`#rrggbb`，默认 `#6366f1`；非法颜色 `400` |
+| POST `/api/tags/delete` `{tagId}` | 删除标签并解除其所有文件关联 |
+| GET `/api/file/tags?fileId=` | 返回某文件的 `{tagIds:[...]}` |
+| POST `/api/file/tags/set` `{fileId, tagIds:[]}` | 覆盖设置某文件的标签集合（仅接受属于本人的标签 id）；文件不存在/非本人 `404` |
+| GET `/api/files/by-tag?tagId=` | 返回带该标签的文件 `{items:[{id,filename,size,parentId}], count}`（上限 500） |
+
+---
+
 ## 存储统计分析
 
 ### GET `/api/stats` — 当前用户的存储分析概览（需鉴权）

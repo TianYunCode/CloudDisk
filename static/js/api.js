@@ -76,6 +76,13 @@
     versionDownloadUrl: (versionId) => '/api/file/version/download?versionId=' + encodeURIComponent(versionId) + '&token=' + encodeURIComponent(Store.token),
     // 统计分析
     stats:     () => request('GET', '/api/stats'),
+    // 标签
+    tagList:     () => request('GET', '/api/tags'),
+    tagCreate:   (name, color) => request('POST', '/api/tags', { name, color }),
+    tagDelete:   (tagId) => request('POST', '/api/tags/delete', { tagId }),
+    fileTagsGet: (fileId) => request('GET', '/api/file/tags?fileId=' + encodeURIComponent(fileId)),
+    fileTagsSet: (fileId, tagIds) => request('POST', '/api/file/tags/set', { fileId, tagIds }),
+    filesByTag:  (tagId) => request('GET', '/api/files/by-tag?tagId=' + encodeURIComponent(tagId)),
     // 管理后台
     adminStats:       () => request('GET', '/api/admin/stats'),
     adminUsers:       (limit, offset) => request('GET', '/api/admin/users?limit=' + (limit || 100) + '&offset=' + (offset || 0)),

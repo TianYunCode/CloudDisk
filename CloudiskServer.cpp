@@ -544,6 +544,7 @@ void CloudiskServer::register_modules()
     register_search_module();
     register_version_module();
     register_stats_module();
+    register_tag_module();
 }
 
 // ----- 静态资源与页面 ----------------------------------------------------------
@@ -859,7 +860,9 @@ void CloudiskServer::register_filelist_module()
 
         // --- 阶段4: 文件列表, 收尾响应 ---
         auto step_list = [resp, out, total, fileWhere, sortCol, order, limit, offset](SeriesWork* s) {
-            string sql = "SELECT id, filename, hashcode, size, created_at, last_update FROM tbl_file WHERE "
+            string sql = "SELECT id, filename, hashcode, size, created_at, last_update, "
+                         "CAST((SELECT GROUP_CONCAT(tag_id) FROM tbl_file_tag WHERE file_id=tbl_file.id) AS CHAR) AS tags "
+                         "FROM tbl_file WHERE "
                        + fileWhere + " ORDER BY " + sortCol + " " + order
                        + " LIMIT " + std::to_string(limit) + " OFFSET " + std::to_string(offset);
             push_mysql(s, sql, [resp, out, total](WFMySQLTask* t) {
@@ -868,6 +871,15 @@ void CloudiskServer::register_filelist_module()
                 std::vector<MySQLCell> rec;
                 nlohmann::json items = nlohmann::json::array();
                 while (c.fetch_row(rec)) {
+                    nlohmann::json tagIds = nlohmann::json::array();
+                    if (!rec[6].is_null()) {
+                        string csv = rec[6].as_string(); string cur;
+                        for (char ch : csv) {
+                            if (ch == ',') { if (!cur.empty()) { tagIds.push_back(std::stoll(cur)); cur.clear(); } }
+                            else cur += ch;
+                        }
+                        if (!cur.empty()) tagIds.push_back(std::stoll(cur));
+                    }
                     items.push_back({
                         {"id",         rec[0].as_ulonglong()},
                         {"filename",   rec[1].as_string()},
@@ -875,6 +887,7 @@ void CloudiskServer::register_filelist_module()
                         {"size",       rec[3].as_ulonglong()},
                         {"createdAt",  rec[4].as_datetime()},
                         {"lastUpdate", rec[5].as_datetime()},
+                        {"tagIds",     tagIds},
                     });
                 }
                 (*out)["total"] = *total;
@@ -1764,6 +1777,8 @@ void CloudiskServer::register_trash_module()
                 // 2) 删除历史版本行 (其 blob 若不再被引用将在下方回收) + 文件行 + 文件夹行 (子树)
                 string del = "DELETE FROM tbl_file_version WHERE file_id IN "
                              "(SELECT id FROM (SELECT id FROM tbl_file WHERE " + fileCond + ") zf); "
+                             "DELETE FROM tbl_file_tag WHERE file_id IN "
+                             "(SELECT id FROM (SELECT id FROM tbl_file WHERE " + fileCond + ") zt); "
                              "DELETE FROM tbl_file WHERE " + fileCond + "; ";
                 if (!pathOf->empty()) {
                     string likes;
@@ -1831,6 +1846,8 @@ void CloudiskServer::register_trash_module()
 
             string del = "DELETE FROM tbl_file_version WHERE file_id IN "
                          "(SELECT id FROM (SELECT id FROM tbl_file WHERE deleted=1 AND uid=" + su + ") zf); "
+                         "DELETE FROM tbl_file_tag WHERE file_id IN "
+                         "(SELECT id FROM (SELECT id FROM tbl_file WHERE deleted=1 AND uid=" + su + ") zt); "
                          "DELETE FROM tbl_file WHERE deleted=1 AND uid=" + su + "; "
                          "DELETE FROM tbl_folder WHERE deleted=1 AND uid=" + su + "; ";
             push_mysql(series_of(t), del, [resp, hashes](WFMySQLTask* t2) {
@@ -3656,6 +3673,159 @@ void CloudiskServer::register_stats_module()
                     });
                 });
             });
+        });
+    });
+}
+
+// =============================================================================
+// 文件标签体系: 用户自定义彩色标签 + 多对多关联文件 + 按标签筛选。
+// 标签关联在文件被彻底删除时随之清理 (见回收站清空/永久删除)。
+// =============================================================================
+namespace {
+    bool valid_hex_color(const string& c) {
+        if (c.size() != 4 && c.size() != 7) return false;
+        if (c[0] != '#') return false;
+        for (size_t i = 1; i < c.size(); ++i) {
+            char ch = c[i];
+            if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))) return false;
+        }
+        return true;
+    }
+}
+
+void CloudiskServer::register_tag_module()
+{
+    // ---- 列出当前用户的标签 (含每个标签的文件数) ----
+    m_server.GET("/api/tags", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        string U = std::to_string(user.id);
+        string sql = "SELECT t.id, t.name, t.color, "
+                     "(SELECT COUNT(*) FROM tbl_file_tag ft WHERE ft.tag_id=t.id) c "
+                     "FROM tbl_tag t WHERE t.uid=" + U + " ORDER BY t.name ASC";
+        push_mysql(series, sql, [resp](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "查询失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> r;
+            nlohmann::json arr = nlohmann::json::array();
+            while (c.fetch_row(r))
+                arr.push_back({ {"id", cell_ll(r[0])}, {"name", r[1].as_string()},
+                                {"color", r[2].as_string()}, {"count", cell_ll(r[3])} });
+            api::ok(resp, {{"tags", arr}, {"count", (long long)arr.size()}}, "ok");
+        });
+    });
+
+    // ---- 创建标签 (名称唯一, 已存在则返回其 id) ----
+    m_server.POST("/api/tags", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        nlohmann::json in;
+        if (!parse_body(req, in)) { api::fail(resp, 400, 400, "请求体格式错误"); return; }
+        string name = json_str(in, "name");
+        string color = json_str(in, "color");
+        // 去首尾空白
+        auto trim = [](string s){ size_t a=s.find_first_not_of(" \t\r\n"); if(a==string::npos) return string(); size_t b=s.find_last_not_of(" \t\r\n"); return s.substr(a,b-a+1); };
+        name = trim(name);
+        if (name.empty() || name.size() > 64) { api::fail(resp, 400, 400, "标签名不合法(1-64字符)"); return; }
+        if (color.empty()) color = "#6366f1";
+        if (!valid_hex_color(color)) { api::fail(resp, 400, 400, "颜色格式不合法"); return; }
+        string U = std::to_string(user.id);
+        string sql = "INSERT INTO tbl_tag (uid, name, color) VALUES (" + U + ", " + SqlUtil::quote(name) + ", "
+                   + SqlUtil::quote(color) + ") ON DUPLICATE KEY UPDATE color=VALUES(color), id=LAST_INSERT_ID(id)";
+        push_mysql(series, sql, [resp, name, color](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "创建失败"); return; }
+            MySQLResultCursor c{ t->get_resp() };
+            long long id = c.get_insert_id();
+            api::ok(resp, {{"id", id}, {"name", name}, {"color", color}}, "已创建");
+        });
+    });
+
+    // ---- 删除标签 (连带解除所有文件关联) ----
+    m_server.POST("/api/tags/delete", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        nlohmann::json in;
+        if (!parse_body(req, in)) { api::fail(resp, 400, 400, "请求体格式错误"); return; }
+        long long tagId = in.contains("tagId") && in["tagId"].is_number() ? in["tagId"].get<long long>() : 0;
+        if (tagId <= 0) { api::fail(resp, 400, 400, "参数不合法"); return; }
+        string U = std::to_string(user.id), T = std::to_string(tagId);
+        string sql = "DELETE FROM tbl_file_tag WHERE uid=" + U + " AND tag_id=" + T + "; "
+                     "DELETE FROM tbl_tag WHERE uid=" + U + " AND id=" + T + "; ";
+        push_mysql(series, sql, [resp](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "删除失败"); return; }
+            api::ok(resp, {}, "已删除");
+        });
+    });
+
+    // ---- 获取单个文件的标签 id 列表 ----
+    m_server.GET("/api/file/tags", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        long long fileId = SqlUtil::to_uint(req->has_query("fileId") ? req->query("fileId") : "", 0, 1000000000000LL);
+        if (fileId <= 0) { api::fail(resp, 400, 400, "缺少 fileId"); return; }
+        string sql = "SELECT tag_id FROM tbl_file_tag WHERE uid=" + std::to_string(user.id)
+                   + " AND file_id=" + std::to_string(fileId);
+        push_mysql(series, sql, [resp](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "查询失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> r;
+            nlohmann::json arr = nlohmann::json::array();
+            while (c.fetch_row(r)) arr.push_back(cell_ll(r[0]));
+            api::ok(resp, {{"tagIds", arr}}, "ok");
+        });
+    });
+
+    // ---- 覆盖设置某文件的标签集合 ----
+    m_server.POST("/api/file/tags/set", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        nlohmann::json in;
+        if (!parse_body(req, in)) { api::fail(resp, 400, 400, "请求体格式错误"); return; }
+        long long fileId = in.contains("fileId") && in["fileId"].is_number() ? in["fileId"].get<long long>() : 0;
+        if (fileId <= 0) { api::fail(resp, 400, 400, "参数不合法"); return; }
+        std::vector<long long> tagIds;
+        if (in.contains("tagIds") && in["tagIds"].is_array())
+            for (auto& v : in["tagIds"]) if (v.is_number()) tagIds.push_back(v.get<long long>());
+        long long uid = user.id; string U = std::to_string(uid), F = std::to_string(fileId);
+        // 校验文件归属 + 未删除
+        string chk = "SELECT id FROM tbl_file WHERE deleted=0 AND uid=" + U + " AND id=" + F;
+        push_mysql(series, chk, [resp, U, F, uid, tagIds](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "查询失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> r;
+            if (!c.fetch_row(r)) { api::fail(resp, 404, 404, "文件不存在"); return; }
+            // 先清空该文件关联, 再插入合法(属于本人)的标签
+            string sql = "DELETE FROM tbl_file_tag WHERE uid=" + U + " AND file_id=" + F + "; ";
+            if (!tagIds.empty()) {
+                string ids;
+                for (auto id : tagIds) { if (!ids.empty()) ids += ","; ids += std::to_string(id); }
+                sql += "INSERT IGNORE INTO tbl_file_tag (tag_id, file_id, uid) "
+                       "SELECT id, " + F + ", " + U + " FROM tbl_tag WHERE uid=" + U
+                     + " AND id IN (" + ids + "); ";
+            }
+            push_mysql(series_of(t), sql, [resp](WFMySQLTask* t2) {
+                if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "保存失败"); return; }
+                api::ok(resp, {}, "已保存");
+            });
+        });
+    });
+
+    // ---- 列出带某标签的文件 ----
+    m_server.GET("/api/files/by-tag", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        long long tagId = SqlUtil::to_uint(req->has_query("tagId") ? req->query("tagId") : "", 0, 1000000000000LL);
+        if (tagId <= 0) { api::fail(resp, 400, 400, "缺少 tagId"); return; }
+        string U = std::to_string(user.id);
+        string sql = "SELECT f.id, f.filename, f.size, f.parent_id "
+                     "FROM tbl_file_tag ft JOIN tbl_file f ON f.id=ft.file_id "
+                     "WHERE ft.uid=" + U + " AND ft.tag_id=" + std::to_string(tagId)
+                   + " AND f.deleted=0 ORDER BY f.filename ASC LIMIT 500";
+        push_mysql(series, sql, [resp](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "查询失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> r;
+            nlohmann::json arr = nlohmann::json::array();
+            while (c.fetch_row(r))
+                arr.push_back({ {"id", cell_ll(r[0])}, {"filename", r[1].as_string()},
+                                {"size", (long long)r[2].as_ulonglong()}, {"parentId", cell_ll(r[3])} });
+            api::ok(resp, {{"items", arr}, {"count", (long long)arr.size()}}, "ok");
         });
     });
 }

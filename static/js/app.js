@@ -19,6 +19,7 @@
     keyword: '', sort: 'created_at', order: 'desc',
     folders: [], items: [],
     selFiles: new Set(), selFolders: new Set(),
+    tags: [], tagMap: {},     // 标签缓存: [{id,name,color,count}] + id->tag
   };
 
   // ---------------- 图标 ----------------
@@ -202,7 +203,7 @@
       tr.innerHTML =
         '<td class="col-check"><input type="checkbox" class="rowcheck"></td>' +
         '<td><div class="fname">' + thumbCell +
-          '<div style="min-width:0"><div class="txt' + (cat ? ' link' : '') + '"></div><div class="hash"></div></div>' +
+          '<div style="min-width:0"><div class="txt' + (cat ? ' link' : '') + '"></div><div class="hash"></div><div class="row-tags"></div></div>' +
         '</div></td>' +
         '<td class="hide-sm">' + humanSize(f.size) + '</td>' +
         '<td class="hide-sm">' + escapeHtml(f.lastUpdate || f.createdAt || '') + '</td>' +
@@ -212,6 +213,7 @@
           '<button class="act" data-act="rename" title="重命名">' + svg('<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>') + '</button>' +
           '<button class="act" data-act="share" title="分享">' + svg(SHARE_ICON) + '</button>' +
           '<button class="act" data-act="versions" title="历史版本">' + svg('<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/>') + '</button>' +
+          '<button class="act" data-act="tags" title="标签">' + svg('<path d="M20.6 13.4 12 22l-9-9V3h10z"/><circle cx="7.5" cy="7.5" r="1.5"/>') + '</button>' +
           '<button class="act danger" data-act="delete" title="删除">' + svg('<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>') + '</button>' +
         '</div></td>';
       tr.querySelector('.txt').textContent = f.filename;
@@ -229,6 +231,8 @@
       tr.querySelector('[data-act="rename"]').onclick = () => doRenameFile(f);
       tr.querySelector('[data-act="share"]').onclick = () => doShare('file', f);
       tr.querySelector('[data-act="versions"]').onclick = () => openVersions(f);
+      tr.querySelector('[data-act="tags"]').onclick = () => openFileTags(f);
+      renderRowTags(tr.querySelector('.row-tags'), f.tagIds);
       tr.querySelector('[data-act="delete"]').onclick = () => doDelete([f.id], [], f.filename);
       body.appendChild(tr);
     });
@@ -257,6 +261,122 @@
   }
 
   // ---------------- 下载 / 重命名 / 删除 ----------------
+  // ---------------- 标签 ----------------
+  async function loadTags() {
+    try {
+      const r = await Api.tagList();
+      state.tags = r.tags || [];
+      state.tagMap = {};
+      state.tags.forEach(t => { state.tagMap[t.id] = t; });
+    } catch (e) { /* ignore */ }
+  }
+  function renderRowTags(box, tagIds) {
+    if (!box) return;
+    const ids = tagIds || [];
+    box.innerHTML = ids.map(id => {
+      const t = state.tagMap[id]; if (!t) return '';
+      return '<span class="tag-chip" style="--tc:' + t.color + '">' + escapeHtml(t.name) + '</span>';
+    }).join('');
+  }
+  function openFileTags(f) {
+    const chosen = new Set(f.tagIds || []);
+    openModal({
+      title: '设置标签 · ' + f.filename,
+      body: '<div class="tag-picker" id="tagPicker"></div>' +
+            '<div class="tag-new"><input class="input" id="tagNewName" placeholder="新建标签名称" maxlength="64">' +
+            '<input type="color" id="tagNewColor" value="#6366f1" class="tag-color-input">' +
+            '<button class="btn btn-sm btn-ghost" id="tagNewBtn">新建</button></div>',
+      confirmText: '保存',
+      onOpen: () => {
+        const render = () => {
+          const p = $('tagPicker');
+          if (!state.tags.length) { p.innerHTML = '<div class="muted" style="font-size:13px">还没有标签，先在下方新建一个。</div>'; return; }
+          p.innerHTML = state.tags.map(t =>
+            '<button type="button" class="tag-opt' + (chosen.has(t.id) ? ' on' : '') + '" data-tid="' + t.id + '" style="--tc:' + t.color + '">' +
+            escapeHtml(t.name) + '</button>').join('');
+          p.querySelectorAll('[data-tid]').forEach(b => b.onclick = () => {
+            const id = Number(b.dataset.tid);
+            if (chosen.has(id)) { chosen.delete(id); b.classList.remove('on'); }
+            else { chosen.add(id); b.classList.add('on'); }
+          });
+        };
+        render();
+        $('tagNewBtn').onclick = async () => {
+          const name = $('tagNewName').value.trim();
+          const color = $('tagNewColor').value;
+          if (!name) { toast('请输入标签名', 'err'); return; }
+          try {
+            const t = await Api.tagCreate(name, color);
+            await loadTags(); chosen.add(t.id); $('tagNewName').value = ''; render();
+            toast('已新建标签', 'ok');
+          } catch (e) { toast(e.message || '新建失败', 'err'); }
+        };
+      },
+      onConfirm: async () => {
+        try {
+          await Api.fileTagsSet(f.id, [...chosen]);
+          f.tagIds = [...chosen];
+          await loadTags(); loadList();
+          toast('标签已保存', 'ok');
+          return true;
+        } catch (e) { toast(e.message || '保存失败', 'err'); return false; }
+      },
+    });
+  }
+
+  // ---------------- 标签视图 ----------------
+  function showTags() {
+    state.view = 'tags';
+    setNav('navTags');
+    $('pageTitle').textContent = '标签';
+    loadTagsView();
+  }
+  async function loadTagsView() {
+    const cloud = $('tagCloud');
+    $('tagFilesCard').hidden = true;
+    cloud.innerHTML = '<div class="empty-cell">加载中…</div>';
+    await loadTags();
+    if (!state.tags.length) { cloud.innerHTML = '<div class="empty-cell">还没有标签。给文件添加标签后会显示在这里。</div>'; return; }
+    cloud.innerHTML = state.tags.map(t =>
+      '<div class="tag-card" data-tid="' + t.id + '" style="--tc:' + t.color + '">' +
+        '<span class="tag-dot"></span><span class="tag-card-name">' + escapeHtml(t.name) + '</span>' +
+        '<span class="tag-card-count">' + t.count + '</span>' +
+        '<button class="tag-del" data-del="' + t.id + '" title="删除标签">&times;</button>' +
+      '</div>').join('');
+    cloud.querySelectorAll('.tag-card').forEach(c => c.onclick = (e) => {
+      if (e.target.closest('[data-del]')) return;
+      openTagFiles(Number(c.dataset.tid));
+    });
+    cloud.querySelectorAll('[data-del]').forEach(b => b.onclick = async (e) => {
+      e.stopPropagation();
+      const id = Number(b.dataset.del); const t = state.tagMap[id];
+      openModal({
+        title: '删除标签', body: '<p>确定删除标签「' + escapeHtml(t ? t.name : '') + '」吗？它将从所有文件上移除。</p>',
+        confirmText: '删除', danger: true,
+        onConfirm: async () => {
+          try { await Api.tagDelete(id); toast('已删除', 'ok'); loadTagsView(); return true; }
+          catch (err) { toast(err.message || '删除失败', 'err'); return false; }
+        },
+      });
+    });
+  }
+  async function openTagFiles(tagId) {
+    const card = $('tagFilesCard'); const body = $('tagFilesBody'); const t = state.tagMap[tagId];
+    card.hidden = false;
+    $('tagFilesTitle').textContent = '标签「' + (t ? t.name : '') + '」下的文件';
+    body.innerHTML = '<div class="empty-cell">加载中…</div>';
+    try {
+      const r = await Api.filesByTag(tagId);
+      const items = r.items || [];
+      body.innerHTML = items.length ? items.map(f =>
+        '<div class="lg-row"><span class="lg-name">' + escapeHtml(f.filename) + '</span>' +
+        '<span><a class="lg-size" href="' + Api.downloadUrl(f.id) + '">' + humanSize(f.size) + '</a> ' +
+        '<button class="btn btn-sm btn-ghost" data-go="' + f.parentId + '">前往目录</button></span></div>').join('')
+        : '<div class="empty-cell">该标签下暂无文件</div>';
+      body.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.parentId = Number(b.dataset.go); showFiles(); });
+    } catch (e) { body.innerHTML = '<div class="empty-cell">加载失败</div>'; }
+  }
+
   function doDownload(f) {
     const a = document.createElement('a');
     a.href = Api.downloadUrl(f.id);
@@ -925,10 +1045,11 @@
 
   // ---------------- 视图切换 ----------------
   function setNav(active) {
-    ['navFiles', 'navFav', 'navStats', 'navTrash', 'navShares', 'navAccount', 'navAdmin'].forEach(id => { const el = $(id); if (el) el.classList.toggle('active', id === active); });
+    ['navFiles', 'navFav', 'navStats', 'navTags', 'navTrash', 'navShares', 'navAccount', 'navAdmin'].forEach(id => { const el = $(id); if (el) el.classList.toggle('active', id === active); });
     $('filesView').hidden = active !== 'navFiles';
     const fv = $('favView'); if (fv) fv.hidden = active !== 'navFav';
     const stv = $('statsView'); if (stv) stv.hidden = active !== 'navStats';
+    const tgv = $('tagsView'); if (tgv) tgv.hidden = active !== 'navTags';
     $('trashView').hidden = active !== 'navTrash';
     const sv = $('sharesView'); if (sv) sv.hidden = active !== 'navShares';
     const av = $('accountView'); if (av) av.hidden = active !== 'navAccount';
@@ -1071,6 +1192,7 @@
   $('navFiles').onclick = showFiles;
   { const el = $('navFav'); if (el) el.onclick = showFav; }
   { const el = $('navStats'); if (el) el.onclick = showStats; }
+  { const el = $('navTags'); if (el) el.onclick = showTags; }
   $('navTrash').onclick = showTrash;
   { const el = $('navShares'); if (el) el.onclick = showShares; }
   { const el = $('navAccount'); if (el) el.onclick = showAccount; }
@@ -1473,5 +1595,21 @@
 
   // ---------------- 启动 ----------------
   loadUser();
-  loadList();
+  loadTags().then(() => loadList());
+
+  // 标签视图“新建标签”按钮
+  { const el = $('newTagBtn'); if (el) el.onclick = () => {
+    openModal({
+      title: '新建标签',
+      body: '<div class="tag-new"><input class="input" id="tagCName" placeholder="标签名称" maxlength="64">' +
+            '<input type="color" id="tagCColor" value="#6366f1" class="tag-color-input"></div>',
+      confirmText: '创建',
+      onConfirm: async () => {
+        const name = $('tagCName').value.trim(); const color = $('tagCColor').value;
+        if (!name) { toast('请输入标签名', 'err'); return false; }
+        try { await Api.tagCreate(name, color); toast('已创建', 'ok'); loadTagsView(); return true; }
+        catch (e) { toast(e.message || '创建失败', 'err'); return false; }
+      },
+    });
+  }; }
 })();

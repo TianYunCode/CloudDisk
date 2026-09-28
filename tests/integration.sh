@@ -399,6 +399,45 @@ curl -s -u "$P6U:$WT" -X PROPFIND -H 'Depth: 1' "$BASE/webdav/it/" | grep -q "a.
 [ "$(wcode -X DELETE "$BASE/webdav/it")" = "204" ] && ok "WebDAV DELETE 204" || bad "WebDAV DELETE"
 [ "$(wcode -X PROPFIND -H 'Depth: 0' "$BASE/webdav/it/")" = "404" ] && ok "WebDAV 删除后 404" || bad "WebDAV 删除后应 404"
 
+echo "== 文件标签 =="
+TGU="tag_$(date +%s)"
+curl -s -X POST "$BASE/api/auth/register" -H 'Content-Type: application/json' -d "{\"username\":\"$TGU\",\"password\":\"$PW\"}" >/dev/null
+TGTOK=$(curl -s -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$TGU\",\"password\":\"$PW\"}" | jq "d['data']['token']")
+TA=$(curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/tags" -H 'Content-Type: application/json' -d '{"name":"重要","color":"#ef4444"}' | jq "d['data']['id']")
+TB=$(curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/tags" -H 'Content-Type: application/json' -d '{"name":"工作"}' | jq "d['data']['id']")
+[ -n "$TA" ] && [ -n "$TB" ] && ok "创建两个标签" || bad "创建标签失败" "$TA/$TB"
+TAB=$(curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/tags" -H 'Content-Type: application/json' -d '{"name":"重要","color":"#00ff00"}' | jq "d['data']['id']")
+[ "$TA" = "$TAB" ] && ok "同名标签返回同 id (幂等)" || bad "同名标签应幂等" "$TA vs $TAB"
+assert_code POST /api/tags 400 '{"name":"x","color":"red"}' "$TGTOK"
+assert_code POST /api/tags 400 '{"name":""}' "$TGTOK"
+printf 'TAG-FILE' > /tmp/tgf.txt; curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/file/upload" -F "f=@/tmp/tgf.txt" >/dev/null
+TGFID=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/file/list" | jq "d['data']['items'][0]['id']")
+curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/file/tags/set" -H 'Content-Type: application/json' -d "{\"fileId\":$TGFID,\"tagIds\":[$TA,$TB]}" >/dev/null
+GT=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/file/tags?fileId=$TGFID" | jq "len(d['data']['tagIds'])")
+[ "$GT" = "2" ] && ok "文件标签数=2" || bad "文件标签设置异常" "$GT"
+LTG=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/file/list" | jq "len(d['data']['items'][0]['tagIds'])")
+[ "$LTG" = "2" ] && ok "列表内文件返回 tagIds(2)" || bad "列表 tagIds 异常" "$LTG"
+BTG=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/files/by-tag?tagId=$TA" | jq "d['data']['count']")
+[ "$BTG" = "1" ] && ok "按标签筛选命中 1 文件" || bad "按标签筛选异常" "$BTG"
+TCNT=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/tags" | jq "[t['count'] for t in d['data']['tags'] if t['id']==$TA][0]")
+[ "$TCNT" = "1" ] && ok "标签计数=1" || bad "标签计数异常" "$TCNT"
+curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/file/tags/set" -H 'Content-Type: application/json' -d "{\"fileId\":$TGFID,\"tagIds\":[]}" >/dev/null
+GT0=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/file/tags?fileId=$TGFID" | jq "len(d['data']['tagIds'])")
+[ "$GT0" = "0" ] && ok "清空文件标签" || bad "清空标签失败" "$GT0"
+# 重新打标 + 彻底删除文件 -> 关联应被清理
+curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/file/tags/set" -H 'Content-Type: application/json' -d "{\"fileId\":$TGFID,\"tagIds\":[$TA]}" >/dev/null
+curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/fs/delete" -H 'Content-Type: application/json' -d "{\"fileIds\":[$TGFID],\"folderIds\":[]}" >/dev/null
+curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/trash/empty" >/dev/null
+GCB=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/files/by-tag?tagId=$TA" | jq "d['data']['count']")
+[ "$GCB" = "0" ] && ok "彻底删除后标签关联被清理" || bad "标签关联未清理" "$GCB"
+TCNT0=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/tags" | jq "[t['count'] for t in d['data']['tags'] if t['id']==$TA][0]")
+[ "$TCNT0" = "0" ] && ok "标签计数回落为 0" || bad "标签计数未回落" "$TCNT0"
+curl -s -H "Authorization: Bearer $TGTOK" -X POST "$BASE/api/tags/delete" -H 'Content-Type: application/json' -d "{\"tagId\":$TB}" >/dev/null
+RTG=$(curl -s -H "Authorization: Bearer $TGTOK" "$BASE/api/tags" | jq "len(d['data']['tags'])")
+[ "$RTG" = "1" ] && ok "删除标签后仅剩 1 个" || bad "删除标签异常" "$RTG"
+assert_code GET /api/tags 401
+assert_code POST /api/file/tags/set 404 '{"fileId":99999999,"tagIds":[]}' "$TGTOK"
+
 echo "== 存储统计 =="
 SU="stat_$(date +%s)"
 curl -s -X POST "$BASE/api/auth/register" -H 'Content-Type: application/json' -d "{\"username\":\"$SU\",\"password\":\"$PW\"}" >/dev/null
