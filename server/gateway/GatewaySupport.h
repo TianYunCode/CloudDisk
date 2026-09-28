@@ -79,8 +79,7 @@ extern TokenRegistry g_tokens;
 // ----- 文件系统 / blob 工具 ---------------------------------------------------
 void mkdir_p(const std::string& path);
 bool file_exists(const std::string& p);
-std::string mime_of(const std::string& filename);
-bool is_thumbnailable(const std::string& filename);
+#include "FileType.h"   // mime_of / is_thumbnailable / ext_of (纯实现)
 long long file_size_of(const std::string& p);
 bool write_file_all(const std::string& path, const char* data, std::size_t n);
 bool read_file_all(const std::string& path, std::string& out);

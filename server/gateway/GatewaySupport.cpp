@@ -64,42 +64,7 @@ void mkdir_p(const string& path)
 
 bool file_exists(const string& p) { return access(p.c_str(), F_OK) == 0; }
 
-// 按扩展名推断 MIME 类型 (用于在线预览时正确渲染)
-string mime_of(const string& filename)
-{
-    string ext;
-    auto dot = filename.rfind('.');
-    if (dot != string::npos) { ext = filename.substr(dot + 1); for (auto& ch : ext) ch = (char)tolower((unsigned char)ch); }
-    static const std::map<string, string> M = {
-        {"png","image/png"}, {"jpg","image/jpeg"}, {"jpeg","image/jpeg"}, {"gif","image/gif"},
-        {"webp","image/webp"}, {"bmp","image/bmp"}, {"svg","image/svg+xml"}, {"ico","image/x-icon"},
-        {"mp4","video/mp4"}, {"webm","video/webm"}, {"mov","video/quicktime"}, {"mkv","video/x-matroska"}, {"ogv","video/ogg"},
-        {"mp3","audio/mpeg"}, {"wav","audio/wav"}, {"flac","audio/flac"}, {"aac","audio/aac"},
-        {"ogg","audio/ogg"}, {"m4a","audio/mp4"},
-        {"pdf","application/pdf"},
-        {"txt","text/plain; charset=utf-8"}, {"md","text/markdown; charset=utf-8"},
-        {"json","application/json; charset=utf-8"}, {"xml","application/xml; charset=utf-8"},
-        {"csv","text/csv; charset=utf-8"}, {"log","text/plain; charset=utf-8"},
-        {"js","text/javascript; charset=utf-8"}, {"ts","text/plain; charset=utf-8"},
-        {"css","text/css; charset=utf-8"}, {"html","text/html; charset=utf-8"},
-        {"c","text/plain; charset=utf-8"}, {"cpp","text/plain; charset=utf-8"}, {"h","text/plain; charset=utf-8"},
-        {"py","text/plain; charset=utf-8"}, {"java","text/plain; charset=utf-8"}, {"go","text/plain; charset=utf-8"},
-        {"sh","text/plain; charset=utf-8"}, {"rs","text/plain; charset=utf-8"}, {"yml","text/plain; charset=utf-8"},
-        {"yaml","text/plain; charset=utf-8"}, {"sql","text/plain; charset=utf-8"},
-    };
-    auto it = M.find(ext);
-    return it == M.end() ? "application/octet-stream" : it->second;
-}
-
-// 判断扩展名是否为可生成缩略图的位图格式 (stb 支持)
-bool is_thumbnailable(const string& filename)
-{
-    string ext;
-    auto dot = filename.rfind('.');
-    if (dot != string::npos) { ext = filename.substr(dot + 1); for (auto& ch : ext) ch = (char)tolower((unsigned char)ch); }
-    static const std::set<string> S = {"png","jpg","jpeg","gif","bmp","tga","psd","ppm","pgm"};
-    return S.count(ext) > 0;
-}
+// ---- mime_of / is_thumbnailable: 已抽出到 server/util/FileType.{h,cpp} ----
 
 // 取文件字节大小 (失败返回 -1)
 long long file_size_of(const string& p)

@@ -17,6 +17,7 @@
 
 #include "SqlUtil.h"
 #include "Totp.h"
+#include "FileType.h"
 #include "BlobStore.h"
 #include "CryptoUtil.h"
 
@@ -77,6 +78,21 @@ static void test_blobstore()
     unlink(store.path_of(hash).c_str());
 }
 
+static void test_filetype()
+{
+    std::printf("== FileType ==\n");
+    CHECK(ext_of("photo.PNG") == "png", "ext_of 小写化");
+    CHECK(ext_of("noext") == "", "ext_of 无扩展名");
+    CHECK(ext_of("a.tar.gz") == "gz", "ext_of 取最后一段");
+    CHECK(mime_of("a.png") == "image/png", "mime png");
+    CHECK(mime_of("a.JPG") == "image/jpeg", "mime jpg 大小写不敏感");
+    CHECK(mime_of("a.pdf") == "application/pdf", "mime pdf");
+    CHECK(mime_of("a.unknownext") == "application/octet-stream", "mime 未知回退");
+    CHECK(is_thumbnailable("a.jpeg"), "jpeg 可缩略");
+    CHECK(!is_thumbnailable("a.mp4"), "mp4 不可缩略");
+    CHECK(!is_thumbnailable("a.svg"), "svg 非位图不可缩略");
+}
+
 static void test_crypto()
 {
     std::printf("== CryptoUtil ==\n");
@@ -94,6 +110,7 @@ int main()
     test_sqlutil();
     test_totp();
     test_blobstore();
+    test_filetype();
     test_crypto();
     std::printf("\n结果: %d 通过, %d 失败 (共 %d)\n", g_total - g_fail, g_fail, g_total);
     return g_fail == 0 ? 0 : 1;
