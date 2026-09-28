@@ -3,7 +3,7 @@
    ============================================================================= */
 (function () {
   'use strict';
-  const { Store, Api, toast, Theme } = window.CV;
+  const { Store, Api, toast, Theme, Validate } = window.CV;
 
   // 已登录则直接进应用
   if (Store.token) { location.href = '/app'; return; }
@@ -52,9 +52,8 @@
 
     if (!username || !password) { toast('请输入用户名和密码', 'warn'); return; }
     if (mode === 'register') {
-      if (!/^[A-Za-z0-9_-]{3,32}$/.test(username)) { toast('用户名需为 3-32 位字母/数字/_/-', 'warn'); return; }
-      if (password.length < 6) { toast('密码至少 6 位', 'warn'); return; }
-      if (password !== $('confirm').value) { toast('两次输入的密码不一致', 'warn'); return; }
+      const err = Validate.registerError(username, password, $('confirm').value);
+      if (err) { toast(err, 'warn'); return; }
     }
 
     btn.disabled = true;
