@@ -266,7 +266,7 @@ L2=$(echo "$EN2" | jq "d['data']['id']")
 [ -n "$L1" ] && [ "$L1" = "$L2" ] && ok "folder/ensure 幂等复用同一叶子" || bad "ensure 幂等失败" "$L1 vs $L2"
 
 echo "== 上传增强: URL 离线下载 =="
-OFF=$(curl -s -H "Authorization: Bearer $TOKEN" -X POST "$BASE/api/offline/create" -H 'Content-Type: application/json' -d "{\"url\":\"$BASE/static/js/api.js\",\"parentId\":0}")
+OFF=$(curl -s -H "Authorization: Bearer $TOKEN" -X POST "$BASE/api/offline/create" -H 'Content-Type: application/json' -d "{\"url\":\"$BASE/static/js/core/api.js\",\"parentId\":0}")
 OID=$(echo "$OFF" | jq "d['data']['id']")
 [ -n "$OID" ] && ok "offline/create 入队" || bad "离线创建失败" "$OFF"
 OFST=""

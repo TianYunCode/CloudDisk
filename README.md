@@ -199,7 +199,7 @@ CloudDisk/
 │   ├── config/            # Config.h
 │   ├── util/              # CryptoUtil.* / SqlUtil.h / Thumbnailer.*
 │   └── infra/             # OssManager.* (外部集成)
-├── web/                   # Web 前端 (index.html / app.html / share.html / css / js)
+├── web/                   # Web 前端 (页面 + css + js/core 基础层 + js/views 页面控制器)
 ├── app/                   # 移动端占位：android/ ios/ (仅 README，Web 稳定后实现)
 ├── bin/                   # 编译产物 server / UserService / backup (gitignore)
 ├── scripts/               # init_db.sql / migrations/ / start.sh / stop.sh / oss.env.example
