@@ -48,6 +48,7 @@ private:
     void register_version_module();
     void register_stats_module();
     void register_tag_module();
+    void register_activity_module();
 private:
     // 名字中最好不要带具体的实现细节
     // 方便以后修改具体的实现

@@ -83,6 +83,8 @@
     fileTagsGet: (fileId) => request('GET', '/api/file/tags?fileId=' + encodeURIComponent(fileId)),
     fileTagsSet: (fileId, tagIds) => request('POST', '/api/file/tags/set', { fileId, tagIds }),
     filesByTag:  (tagId) => request('GET', '/api/files/by-tag?tagId=' + encodeURIComponent(tagId)),
+    // 活动日志
+    activity:    (action) => request('GET', '/api/activity' + (action ? '?action=' + encodeURIComponent(action) : '')),
     // 管理后台
     adminStats:       () => request('GET', '/api/admin/stats'),
     adminUsers:       (limit, offset) => request('GET', '/api/admin/users?limit=' + (limit || 100) + '&offset=' + (offset || 0)),

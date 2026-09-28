@@ -501,3 +501,14 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--brand-1)
 .tag-card-count { font-size: 12px; color: var(--muted); background: var(--bg); padding: 1px 8px; border-radius: 999px; }
 .tag-del { border: none; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
 .tag-del:hover { color: var(--danger, #ef4444); }
+
+/* ===== 活动日志 ===== */
+.activity-list { display: flex; flex-direction: column; }
+.act-row { display: flex; align-items: center; gap: 12px; padding: 12px 6px; border-bottom: 1px solid var(--border); }
+.act-row:last-child { border-bottom: none; }
+.act-ic { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; }
+.act-ic .icon { width: 18px; height: 18px; }
+.act-main { min-width: 0; flex: 1; }
+.act-label { font-size: 14px; font-weight: 600; }
+.act-detail { font-weight: 400; color: var(--muted); font-size: 13px; }
+.act-time { font-size: 12px; color: var(--muted); margin-top: 2px; }

@@ -399,6 +399,17 @@ Body：`{ oldPassword, newPassword }`。校验原密码后以新盐重算 sha256
 
 ---
 
+## 活动日志
+
+面向当前用户展示其自身的操作记录（读 `tbl_audit`，按 `uid` 过滤；与管理员的 `/api/admin/audit` 互补，无需管理员权限）。已覆盖的事件包括：登录/注册/登录失败、上传、删除、恢复、重命名、新建文件夹、创建分享、改密、资料/头像、两步验证、API 令牌创建/吊销、管理员操作等。
+
+### GET `/api/activity?limit=&offset=&action=` — 本人操作记录（需鉴权）
+
+- `limit` 默认 50、上限 200；`offset` 分页；`action` 可选按动作过滤（仅接受字母/数字/下划线）。
+- 返回：`{logs:[{id, action, detail, ip, createdAt}], count}`，按时间倒序。
+
+---
+
 ## 文件标签
 
 用户自定义彩色标签，多对多关联文件；文件被彻底删除时其标签关联自动清理。文件列表 `GET /api/file/list` 的每个文件项额外返回 `tagIds:[...]`。

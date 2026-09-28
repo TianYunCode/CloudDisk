@@ -545,6 +545,7 @@ void CloudiskServer::register_modules()
     register_version_module();
     register_stats_module();
     register_tag_module();
+    register_activity_module();
 }
 
 // ----- 静态资源与页面 ----------------------------------------------------------
@@ -735,9 +736,10 @@ void CloudiskServer::register_fileupload_module()
 
         int uid = user.id;
         string username = user.username;
+        string ip = client_ip(req);
         // 先查当前用量并校验配额, 通过后再写 blob (避免超配额时产生孤儿文件)
         string usageSql = usage_quota_sql(uid);
-        push_mysql(series, usageSql, [req, resp, uid, username, incoming, parentId](WFMySQLTask* task) {
+        push_mysql(series, usageSql, [req, resp, uid, username, ip, incoming, parentId](WFMySQLTask* task) {
             long long used = 0, quota = g_user_quota;
             if (mysql_ok(task)) {
                 MySQLResultCursor cur{ task->get_resp() };
@@ -771,12 +773,14 @@ void CloudiskServer::register_fileupload_module()
             string sql = "REPLACE INTO tbl_file (uid, parent_id, filename, hashcode, size) VALUES ";
             for (size_t i = 0; i < tuples.size(); ++i) { if (i) sql += ", "; sql += tuples[i]; }
             SeriesWork* s = series_of(task);
-            push_mysql(s, sql, [resp, uploaded, username](WFMySQLTask* t2) {
+            push_mysql(s, sql, [resp, uploaded, username, uid, ip](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "写入文件元数据失败"); return; }
                 long long bytes = 0; for (auto& f : uploaded) bytes += (long long)f.value("size", 0);
                 g_metrics.uploads += (long long)uploaded.size();
                 g_metrics.upload_bytes += bytes;
                 LOG_INFO("用户 " << username << " 上传 " << uploaded.size() << " 个文件");
+                audit_log(uid, username, "file_upload",
+                          std::to_string(uploaded.size()) + " 个文件, " + std::to_string(bytes) + " 字节", ip);
                 api::ok(resp, {{"files", uploaded}}, "上传成功");
             });
         });
@@ -974,13 +978,16 @@ void CloudiskServer::register_filelist_module()
         string newname = PathUtil::base(json_str(in, "newname"));
         if (id <= 0 || newname.empty()) { api::fail(resp, 400, 400, "参数不合法"); return; }
 
+        string uname = user.username, cip = client_ip(req);
+        long long ruid = user.id;
         string sql = "UPDATE tbl_file SET filename=" + SqlUtil::quote(newname)
                    + " WHERE deleted=0 AND uid=" + std::to_string(user.id)
                    + " AND id=" + std::to_string(id);
-        push_mysql(series, sql, [resp, newname](WFMySQLTask* task) {
+        push_mysql(series, sql, [resp, newname, ruid, uname, cip](WFMySQLTask* task) {
             if (!mysql_ok(task)) { api::fail(resp, 409, 409, "重命名失败(该目录下可能已存在同名文件)"); return; }
             MySQLResultCursor c{ task->get_resp() };
             if (c.get_affected_rows() == 0) { api::fail(resp, 404, 404, "文件不存在"); return; }
+            audit_log(ruid, uname, "file_rename", "重命名为 " + newname, cip);
             api::ok(resp, {{"filename", newname}}, "已重命名");
         });
     });
@@ -1405,18 +1412,20 @@ void CloudiskServer::register_folder_module()
         long long parentId = in.contains("parentId") && in["parentId"].is_number() ? in["parentId"].get<long long>() : 0;
         if (name.empty() || name.size() > 255) { api::fail(resp, 400, 400, "文件夹名不合法"); return; }
         long long uid = user.id;
+        string cuname = user.username, cip = client_ip(req);
 
         // 插入后再用自增 id 回填物化路径 path = 父路径 + id + "/"
-        auto do_insert = [resp, uid, name, parentId](SeriesWork* s, const string& parentPath) {
+        auto do_insert = [resp, uid, name, parentId, cuname, cip](SeriesWork* s, const string& parentPath) {
             string ins = "INSERT INTO tbl_folder (uid, name, parent_id, path) VALUES ("
                 + std::to_string(uid) + ", " + SqlUtil::quote(name) + ", " + std::to_string(parentId) + ", '/')";
-            push_mysql(s, ins, [resp, name, parentId, parentPath](WFMySQLTask* t) {
+            push_mysql(s, ins, [resp, name, parentId, parentPath, uid, cuname, cip](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 409, 409, "该目录下已存在同名文件夹"); return; }
                 MySQLResultCursor c{ t->get_resp() };
                 long long id = c.get_insert_id();
                 string np = parentPath + std::to_string(id) + "/";
                 string up = "UPDATE tbl_folder SET path=" + SqlUtil::quote(np) + " WHERE id=" + std::to_string(id);
-                push_mysql(series_of(t), up, [resp, id, name, parentId](WFMySQLTask*) {
+                push_mysql(series_of(t), up, [resp, id, name, parentId, uid, cuname, cip](WFMySQLTask*) {
+                    audit_log(uid, cuname, "folder_create", "新建文件夹 " + name, cip);
                     api::ok(resp, {{"id", id}, {"name", name}, {"parentId", parentId}}, "已创建");
                 });
             });
@@ -1610,8 +1619,10 @@ void CloudiskServer::register_trash_module()
         long long uid = user.id;
         if (fileIds.empty() && folderIds.empty()) { api::ok(resp, {}, "无变化"); return; }
         string su = std::to_string(uid);
+        string username = user.username, ip = client_ip(req);
+        long long nItems = (long long)fileIds.size() + (long long)folderIds.size();
 
-        auto apply = [resp, uid, fileIds, su](SeriesWork* s, std::shared_ptr<std::map<long long, string>> pathOf) {
+        auto apply = [resp, uid, fileIds, su, username, ip, nItems](SeriesWork* s, std::shared_ptr<std::map<long long, string>> pathOf) {
             string q;
             if (!fileIds.empty())
                 q += "UPDATE tbl_file SET deleted=1, deleted_at=NOW(), trashed_root=1, dkey=id "
@@ -1626,8 +1637,9 @@ void CloudiskServer::register_trash_module()
                      "WHERE deleted=0 AND uid=" + su + " AND parent_id IN (SELECT id FROM tbl_folder WHERE uid=" + su + " AND path LIKE " + like + "); ";
             }
             if (q.empty()) { api::ok(resp, {}, "无变化"); return; }
-            push_mysql(s, q, [resp](WFMySQLTask* t) {
+            push_mysql(s, q, [resp, uid, username, ip, nItems](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 500, 500, "删除失败"); return; }
+                audit_log(uid, username, "file_delete", std::to_string(nItems) + " 个项目移入回收站", ip);
                 api::ok(resp, {}, "已移入回收站");
             });
         };
@@ -1697,8 +1709,10 @@ void CloudiskServer::register_trash_module()
         long long uid = user.id;
         if (fileIds.empty() && folderIds.empty()) { api::ok(resp, {}, "无变化"); return; }
         string su = std::to_string(uid);
+        string username = user.username, ip = client_ip(req);
+        long long nItems = (long long)fileIds.size() + (long long)folderIds.size();
 
-        auto apply = [resp, fileIds, su](SeriesWork* s, std::shared_ptr<std::map<long long, string>> pathOf) {
+        auto apply = [resp, fileIds, su, uid, username, ip, nItems](SeriesWork* s, std::shared_ptr<std::map<long long, string>> pathOf) {
             string q;
             if (!fileIds.empty())
                 q += "UPDATE tbl_file SET deleted=0, deleted_at=NULL, trashed_root=0, dkey=0 "
@@ -1712,8 +1726,9 @@ void CloudiskServer::register_trash_module()
                      "WHERE deleted=1 AND uid=" + su + " AND parent_id IN (SELECT id FROM tbl_folder WHERE uid=" + su + " AND path LIKE " + like + "); ";
             }
             if (q.empty()) { api::ok(resp, {}, "无变化"); return; }
-            push_mysql(s, q, [resp](WFMySQLTask* t) {
+            push_mysql(s, q, [resp, uid, username, ip, nItems](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 409, 409, "恢复失败(原目录可能已存在同名项)"); return; }
+                audit_log(uid, username, "file_restore", std::to_string(nItems) + " 个项目从回收站恢复", ip);
                 api::ok(resp, {}, "已恢复");
             });
         };
@@ -1933,10 +1948,11 @@ void CloudiskServer::register_share_module()
 
         long long uid = user.id;
         bool isFolder = folderId > 0;
+        string username = user.username, ip = client_ip(req);
         string qName = isFolder
             ? "SELECT name FROM tbl_folder WHERE id=" + std::to_string(folderId) + " AND uid=" + std::to_string(uid) + " AND deleted=0"
             : "SELECT filename FROM tbl_file WHERE id=" + std::to_string(fileId) + " AND uid=" + std::to_string(uid) + " AND deleted=0";
-        push_mysql(series, qName, [resp, uid, fileId, folderId, isFolder, code, expireDays, maxDownloads](WFMySQLTask* t) {
+        push_mysql(series, qName, [resp, uid, username, ip, fileId, folderId, isFolder, code, expireDays, maxDownloads](WFMySQLTask* t) {
             if (!mysql_ok(t)) { api::fail(resp, 500, 500, "创建失败"); return; }
             MySQLResultCursor c{ t->get_resp() };
             std::vector<MySQLCell> row;
@@ -1948,9 +1964,10 @@ void CloudiskServer::register_share_module()
                 + std::to_string(uid) + ", " + SqlUtil::quote(token) + ", " + SqlUtil::quote(code) + ", "
                 + std::to_string(fileId) + ", " + std::to_string(folderId) + ", " + (isFolder ? "1" : "0") + ", "
                 + SqlUtil::quote(name) + ", " + expireExpr + ", " + std::to_string(maxDownloads) + ")";
-            push_mysql(series_of(t), ins, [resp, token, code, isFolder, name, expireDays, maxDownloads](WFMySQLTask* t2) {
+            push_mysql(series_of(t), ins, [resp, uid, username, ip, token, code, isFolder, name, expireDays, maxDownloads](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "创建失败"); return; }
                 g_metrics.shares_created++;
+                audit_log(uid, username, "share_create", (isFolder ? "文件夹: " : "文件: ") + name, ip);
                 api::ok(resp, {
                     {"token", token}, {"code", code}, {"isFolder", isFolder},
                     {"name", name}, {"expireDays", expireDays}, {"maxDownloads", maxDownloads},
@@ -3826,6 +3843,42 @@ void CloudiskServer::register_tag_module()
                 arr.push_back({ {"id", cell_ll(r[0])}, {"filename", r[1].as_string()},
                                 {"size", (long long)r[2].as_ulonglong()}, {"parentId", cell_ll(r[3])} });
             api::ok(resp, {{"items", arr}, {"count", (long long)arr.size()}}, "ok");
+        });
+    });
+}
+
+// =============================================================================
+// 活动日志: 面向当前用户展示其自身的操作记录 (读 tbl_audit, 按 uid 过滤)。
+// 与管理员的 /api/admin/audit 互补: 这里仅返回本人 uid 的记录, 无需管理员权限。
+// =============================================================================
+void CloudiskServer::register_activity_module()
+{
+    m_server.GET("/api/activity", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        long long limit  = SqlUtil::to_uint(req->has_query("limit")  ? req->query("limit")  : "", 50, 200);
+        long long offset = SqlUtil::to_uint(req->has_query("offset") ? req->query("offset") : "", 0, 100000000LL);
+        if (limit <= 0) limit = 50;
+        string action = req->has_query("action") ? req->query("action") : "";
+        string where = "uid=" + std::to_string(user.id);
+        // action 仅允许安全字符 (字母/数字/下划线), 防注入
+        if (!action.empty()) {
+            bool okc = true;
+            for (char ch : action) if (!(isalnum((unsigned char)ch) || ch == '_')) { okc = false; break; }
+            if (okc) where += " AND action=" + SqlUtil::quote(action);
+        }
+        string sql = "SELECT id, action, detail, ip, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') "
+                     "FROM tbl_audit WHERE " + where + " ORDER BY id DESC LIMIT "
+                   + std::to_string(limit) + " OFFSET " + std::to_string(offset);
+        push_mysql(series, sql, [resp](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "查询失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> r;
+            nlohmann::json arr = nlohmann::json::array();
+            while (c.fetch_row(r))
+                arr.push_back({ {"id", cell_ll(r[0])}, {"action", r[1].as_string()},
+                                {"detail", r[2].as_string()}, {"ip", r[3].as_string()},
+                                {"createdAt", r[4].is_string() ? r[4].as_string() : string()} });
+            api::ok(resp, {{"logs", arr}, {"count", (long long)arr.size()}}, "ok");
         });
     });
 }

@@ -41,6 +41,10 @@
           <svg class="icon" viewBox="0 0 24 24"><path d="M20.6 13.4 12 22l-9-9V3h10z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
           <span>标签</span>
         </button>
+        <button class="nav-item" id="navActivity" type="button">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          <span>活动日志</span>
+        </button>
         <button class="nav-item" id="navTrash" type="button">
           <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
           <span>回收站</span>
@@ -183,6 +187,28 @@
             </thead>
             <tbody id="favBody"></tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- ========== 活动日志视图 ========== -->
+      <section id="activityView" hidden>
+        <div class="trash-head">
+          <p class="trash-note">你账户的近期操作记录（登录、上传、删除、分享、账户与安全变更等）。</p>
+          <select id="activityFilter" class="search-scope">
+            <option value="">全部操作</option>
+            <option value="login">登录</option>
+            <option value="file_upload">上传</option>
+            <option value="file_delete">删除</option>
+            <option value="file_restore">恢复</option>
+            <option value="file_rename">重命名</option>
+            <option value="folder_create">新建文件夹</option>
+            <option value="share_create">创建分享</option>
+            <option value="password_change">修改密码</option>
+            <option value="token_create">创建令牌</option>
+          </select>
+        </div>
+        <div class="card">
+          <div id="activityList" class="activity-list"></div>
         </div>
       </section>
 

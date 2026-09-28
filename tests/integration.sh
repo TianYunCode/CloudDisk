@@ -399,6 +399,32 @@ curl -s -u "$P6U:$WT" -X PROPFIND -H 'Depth: 1' "$BASE/webdav/it/" | grep -q "a.
 [ "$(wcode -X DELETE "$BASE/webdav/it")" = "204" ] && ok "WebDAV DELETE 204" || bad "WebDAV DELETE"
 [ "$(wcode -X PROPFIND -H 'Depth: 0' "$BASE/webdav/it/")" = "404" ] && ok "WebDAV 删除后 404" || bad "WebDAV 删除后应 404"
 
+echo "== 活动日志 =="
+ACU="act_$(date +%s)"
+curl -s -X POST "$BASE/api/auth/register" -H 'Content-Type: application/json' -d "{\"username\":\"$ACU\",\"password\":\"$PW\"}" >/dev/null
+ACTOK=$(curl -s -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$ACU\",\"password\":\"$PW\"}" | jq "d['data']['token']")
+curl -s -H "Authorization: Bearer $ACTOK" -X POST "$BASE/api/folder/create" -H 'Content-Type: application/json' -d '{"name":"活动夹","parentId":0}' >/dev/null
+printf 'ACTIVITY' > /tmp/actf.txt; curl -s -H "Authorization: Bearer $ACTOK" -X POST "$BASE/api/file/upload" -F "f=@/tmp/actf.txt" >/dev/null
+ACFID=$(curl -s -H "Authorization: Bearer $ACTOK" "$BASE/api/file/list" | jq "d['data']['items'][0]['id']")
+curl -s -H "Authorization: Bearer $ACTOK" -X POST "$BASE/api/file/rename" -H 'Content-Type: application/json' -d "{\"id\":$ACFID,\"newname\":\"actr.txt\"}" >/dev/null
+curl -s -H "Authorization: Bearer $ACTOK" -X POST "$BASE/api/share/create" -H 'Content-Type: application/json' -d "{\"fileId\":$ACFID}" >/dev/null
+curl -s -H "Authorization: Bearer $ACTOK" -X POST "$BASE/api/fs/delete" -H 'Content-Type: application/json' -d "{\"fileIds\":[$ACFID],\"folderIds\":[]}" >/dev/null
+sleep 1  # 等异步审计写入
+ACLOG=$(curl -s -H "Authorization: Bearer $ACTOK" "$BASE/api/activity")
+ACNT=$(echo "$ACLOG" | jq "d['data']['count']")
+[ "$ACNT" -ge 5 ] 2>/dev/null && ok "活动日志记录数>=5 ($ACNT)" || bad "活动日志记录不足" "$ACNT"
+for act in login file_upload file_rename share_create file_delete folder_create; do
+  N=$(curl -s -H "Authorization: Bearer $ACTOK" "$BASE/api/activity?action=$act" | jq "d['data']['count']")
+  [ "$N" -ge 1 ] 2>/dev/null && ok "含 $act 记录" || bad "缺少 $act 记录" "$N"
+done
+# 隔离性: 另一个用户看不到本人记录
+OU="acto_$(date +%s)"
+curl -s -X POST "$BASE/api/auth/register" -H 'Content-Type: application/json' -d "{\"username\":\"$OU\",\"password\":\"$PW\"}" >/dev/null
+OTOK=$(curl -s -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$OU\",\"password\":\"$PW\"}" | jq "d['data']['token']")
+OUP=$(curl -s -H "Authorization: Bearer $OTOK" "$BASE/api/activity?action=file_upload" | jq "d['data']['count']")
+[ "$OUP" = "0" ] && ok "活动日志按用户隔离(他人无本人上传)" || bad "活动日志隔离失效" "$OUP"
+assert_code GET /api/activity 401
+
 echo "== 文件标签 =="
 TGU="tag_$(date +%s)"
 curl -s -X POST "$BASE/api/auth/register" -H 'Content-Type: application/json' -d "{\"username\":\"$TGU\",\"password\":\"$PW\"}" >/dev/null

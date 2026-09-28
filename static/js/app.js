@@ -384,6 +384,56 @@
     document.body.appendChild(a); a.click(); a.remove();
   }
 
+  // ---------------- 活动日志 ----------------
+  const ACT_META = {
+    login:              { label: '登录', color: '#10b981', icon: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5M15 12H3"/>' },
+    login_fail:         { label: '登录失败', color: '#ef4444', icon: '<circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>' },
+    login_blocked:      { label: '登录被限流', color: '#ef4444', icon: '<circle cx="12" cy="12" r="10"/><path d="M4.9 4.9l14.2 14.2"/>' },
+    login_2fa_fail:     { label: '两步验证失败', color: '#ef4444', icon: '<circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>' },
+    login_disabled:     { label: '禁用账户登录', color: '#ef4444', icon: '<circle cx="12" cy="12" r="10"/>' },
+    register:           { label: '注册', color: '#6366f1', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>' },
+    file_upload:        { label: '上传', color: '#0ea5e9', icon: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/>' },
+    file_delete:        { label: '删除', color: '#f59e0b', icon: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>' },
+    file_restore:       { label: '恢复', color: '#10b981', icon: '<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>' },
+    file_rename:        { label: '重命名', color: '#8b5cf6', icon: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>' },
+    folder_create:      { label: '新建文件夹', color: '#6366f1', icon: '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>' },
+    share_create:       { label: '创建分享', color: '#ec4899', icon: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/>' },
+    password_change:    { label: '修改密码', color: '#8b5cf6', icon: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>' },
+    password_change_fail: { label: '改密失败', color: '#ef4444', icon: '<rect x="3" y="11" width="18" height="11" rx="2"/>' },
+    profile_update:     { label: '资料更新', color: '#6366f1', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>' },
+    avatar_update:      { label: '更换头像', color: '#6366f1', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>' },
+    '2fa_enable':       { label: '启用两步验证', color: '#10b981', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>' },
+    '2fa_disable':      { label: '关闭两步验证', color: '#f59e0b', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>' },
+    token_create:       { label: '创建令牌', color: '#0ea5e9', icon: '<path d="M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z"/>' },
+    token_revoke:       { label: '吊销令牌', color: '#f59e0b', icon: '<path d="M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z"/>' },
+  };
+  function showActivity() {
+    state.view = 'activity';
+    setNav('navActivity');
+    $('pageTitle').textContent = '活动日志';
+    loadActivity();
+  }
+  async function loadActivity() {
+    const box = $('activityList');
+    box.innerHTML = '<div class="empty-cell">加载中…</div>';
+    const action = $('activityFilter') ? $('activityFilter').value : '';
+    try {
+      const r = await Api.activity(action);
+      const logs = r.logs || [];
+      if (!logs.length) { box.innerHTML = '<div class="empty-cell">暂无记录</div>'; return; }
+      box.innerHTML = logs.map(l => {
+        const m = ACT_META[l.action] || { label: l.action, color: '#94a3b8', icon: '<circle cx="12" cy="12" r="10"/>' };
+        const ip = l.ip && l.ip !== '-' ? ' · ' + escapeHtml(l.ip) : '';
+        return '<div class="act-row">' +
+          '<span class="act-ic" style="background:' + m.color + '">' + svg(m.icon) + '</span>' +
+          '<div class="act-main"><div class="act-label">' + escapeHtml(m.label) +
+            (l.detail ? ' <span class="act-detail">' + escapeHtml(l.detail) + '</span>' : '') + '</div>' +
+            '<div class="act-time">' + escapeHtml(l.createdAt || '') + ip + '</div></div>' +
+          '</div>';
+      }).join('');
+    } catch (e) { box.innerHTML = '<div class="empty-cell">加载失败</div>'; }
+  }
+
   // ---------------- 历史版本 ----------------
   function openVersions(f) {
     openModal({
@@ -1045,11 +1095,12 @@
 
   // ---------------- 视图切换 ----------------
   function setNav(active) {
-    ['navFiles', 'navFav', 'navStats', 'navTags', 'navTrash', 'navShares', 'navAccount', 'navAdmin'].forEach(id => { const el = $(id); if (el) el.classList.toggle('active', id === active); });
+    ['navFiles', 'navFav', 'navStats', 'navTags', 'navActivity', 'navTrash', 'navShares', 'navAccount', 'navAdmin'].forEach(id => { const el = $(id); if (el) el.classList.toggle('active', id === active); });
     $('filesView').hidden = active !== 'navFiles';
     const fv = $('favView'); if (fv) fv.hidden = active !== 'navFav';
     const stv = $('statsView'); if (stv) stv.hidden = active !== 'navStats';
     const tgv = $('tagsView'); if (tgv) tgv.hidden = active !== 'navTags';
+    const acv = $('activityView'); if (acv) acv.hidden = active !== 'navActivity';
     $('trashView').hidden = active !== 'navTrash';
     const sv = $('sharesView'); if (sv) sv.hidden = active !== 'navShares';
     const av = $('accountView'); if (av) av.hidden = active !== 'navAccount';
@@ -1193,6 +1244,8 @@
   { const el = $('navFav'); if (el) el.onclick = showFav; }
   { const el = $('navStats'); if (el) el.onclick = showStats; }
   { const el = $('navTags'); if (el) el.onclick = showTags; }
+  { const el = $('navActivity'); if (el) el.onclick = showActivity; }
+  { const el = $('activityFilter'); if (el) el.onchange = loadActivity; }
   $('navTrash').onclick = showTrash;
   { const el = $('navShares'); if (el) el.onclick = showShares; }
   { const el = $('navAccount'); if (el) el.onclick = showAccount; }
