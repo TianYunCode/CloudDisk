@@ -22,24 +22,10 @@
     tags: [], tagMap: {},     // 标签缓存: [{id,name,color,count}] + id->tag
   };
 
-  // ---------------- 图标 ----------------
-  const FOLDER_ICON = '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>';
-  const SHARE_ICON = '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/>';
-  const TYPE_MAP = {
-    image: { ext: ['png','jpg','jpeg','gif','webp','svg','bmp','ico'], color: '#ec4899', icon: '<circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/><rect x="3" y="3" width="18" height="18" rx="2"/>' },
-    video: { ext: ['mp4','mov','avi','mkv','webm','flv'], color: '#f43f5e', icon: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/>' },
-    audio: { ext: ['mp3','wav','flac','aac','ogg','m4a'], color: '#f59e0b', icon: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>' },
-    pdf:   { ext: ['pdf'], color: '#ef4444', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>' },
-    doc:   { ext: ['doc','docx','txt','md','rtf'], color: '#3b82f6', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/>' },
-    sheet: { ext: ['xls','xlsx','csv'], color: '#10b981', icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>' },
-    zip:   { ext: ['zip','rar','7z','tar','gz'], color: '#a855f7', icon: '<path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/>' },
-    code:  { ext: ['js','ts','c','cpp','h','py','java','go','html','css','json','sh','rs'], color: '#6366f1', icon: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>' },
-  };
-  function fileType(name) {
-    const ext = (name.split('.').pop() || '').toLowerCase();
-    for (const k in TYPE_MAP) if (TYPE_MAP[k].ext.includes(ext)) return TYPE_MAP[k];
-    return { color: '#9aa0b8', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>' };
-  }
+  // ---------------- 图标 / 文件类型 (纯逻辑抽出至 core/format.js) ----------------
+  const { Icons, fileType } = window.CV;
+  const FOLDER_ICON = Icons.FOLDER;
+  const SHARE_ICON = Icons.SHARE;
   function svg(inner, cls) { return '<svg class="icon' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24">' + inner + '</svg>'; }
 
   // ---------------- 用户信息 & 存储 ----------------
