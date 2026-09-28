@@ -19,6 +19,7 @@
 #include "Totp.h"
 #include "FileType.h"
 #include "RateLimiter.h"
+#include "JsonUtil.h"
 #include "BlobStore.h"
 #include "CryptoUtil.h"
 
@@ -120,6 +121,28 @@ static void test_ratelimiter()
     CHECK(rl3.blocked(k, t + 200) == 0, "窗口过期后计数重置");
 }
 
+static void test_jsonutil()
+{
+    std::printf("== JsonUtil ==\n");
+    auto j = nlohmann::json::parse(R"({"name":"alice","n":42,"ids":[1,2,"3"],"bad":[0],"mixed":[1,"x"],"nan":[-1]})");
+    // json_str
+    CHECK(json_str(j, "name") == "alice", "json_str 读取字符串");
+    CHECK(json_str(j, "n").empty(), "json_str 非字符串返回空");
+    CHECK(json_str(j, "missing").empty(), "json_str 缺失键返回空");
+    // ids_from_json
+    std::vector<long long> out;
+    CHECK(ids_from_json(j, "ids", out) && out.size() == 3 && out[0] == 1 && out[2] == 3, "ids 数字与数字字符串混合");
+    CHECK(ids_from_json(j, "missing", out) && out.empty(), "缺省键视为空数组且合法");
+    CHECK(!ids_from_json(j, "bad", out), "含 0 非法");
+    CHECK(!ids_from_json(j, "mixed", out), "含非数字字符串非法");
+    CHECK(!ids_from_json(j, "nan", out), "含负数非法");
+    CHECK(!ids_from_json(j, "name", out), "非数组非法");
+    // ids_csv
+    CHECK(ids_csv({1,2,3}) == "1,2,3", "ids_csv 拼接");
+    CHECK(ids_csv({}).empty(), "ids_csv 空列表");
+    CHECK(ids_csv({7}) == "7", "ids_csv 单元素无逗号");
+}
+
 static void test_crypto()
 {
     std::printf("== CryptoUtil ==\n");
@@ -139,6 +162,7 @@ int main()
     test_blobstore();
     test_filetype();
     test_ratelimiter();
+    test_jsonutil();
     test_crypto();
     std::printf("\n结果: %d 通过, %d 失败 (共 %d)\n", g_total - g_fail, g_fail, g_total);
     return g_fail == 0 ? 0 : 1;

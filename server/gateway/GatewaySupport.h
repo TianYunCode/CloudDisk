@@ -91,12 +91,10 @@ void publish_oss_backup(const std::string& hash);
 bool discover_userservice(std::string& ip, unsigned short& port);
 
 // ----- 请求 / JSON / SQL 工具 -------------------------------------------------
+#include "JsonUtil.h"   // json_str / ids_from_json / ids_csv (纯实现)
 bool parse_body(const wfrest::HttpReq* req, nlohmann::json& out);
-std::string json_str(const nlohmann::json& j, const char* key);
 WFMySQLTask* push_mysql(SeriesWork* series, const std::string& sql, mysql_callback_t cb);
 bool mysql_ok(WFMySQLTask* task);
-bool ids_from_json(const nlohmann::json& j, const char* key, std::vector<long long>& out);
-std::string ids_csv(const std::vector<long long>& v);
 std::string gen_token(int n);
 long long cell_ll(const protocol::MySQLCell& c);
 std::string usage_quota_sql(long long uid);
