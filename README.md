@@ -191,7 +191,7 @@ CloudDisk/
 ├── config.json            # 运行配置 (env > config.json > 默认)
 ├── CMakeLists.txt         # 构建 (产物输出到 bin/)
 ├── server/                # 服务端 C++ 后端 (分层)
-│   ├── gateway/           # HTTP 网关：CloudiskServer.* / main.cpp / ApiResp.h
+│   ├── gateway/           # HTTP 网关：CloudiskServer(组合根)/GatewaySupport(支撑层)/handlers(分域处理器)/main.cpp
 │   ├── user-service/      # 用户微服务 (srpc)
 │   ├── backup-service/    # OSS 异步备份消费者
 │   ├── rpc/               # UserService.proto 及生成代码
