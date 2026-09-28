@@ -174,7 +174,7 @@ docker compose up -d --build
 ## 🧪 测试
 
 ```bash
-./bin/unit_tests                   # 25 项纯逻辑单元测试（SqlUtil/Totp/BlobStore/CryptoUtil，无需服务）
+./bin/unit_tests                   # 35 项纯逻辑单元测试（SqlUtil/Totp/FileType/BlobStore/CryptoUtil，无需服务）
 bash tests/integration.sh          # 173 项 API/边界/安全集成测试（含令牌/WebDAV/指标/收藏/搜索/版本/统计/标签/活动）
 ```
 
