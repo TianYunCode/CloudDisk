@@ -48,11 +48,8 @@ RUN git clone --depth 1 https://github.com/alanxz/SimpleAmqpClient.git && \
     cmake --build SimpleAmqpClient/build -j"$(nproc)" && \
     cmake --install SimpleAmqpClient/build && ldconfig
 
-# ---- libjwt (依赖 jansson) ----
-RUN git clone --depth 1 https://github.com/benmcollins/libjwt.git && \
-    cmake -S libjwt -B libjwt/build -DCMAKE_BUILD_TYPE=Release -DENABLE_PIC=ON && \
-    cmake --build libjwt/build -j"$(nproc)" && \
-    cmake --install libjwt/build && ldconfig
+# ---- libjwt: 使用发行版软件包 (2.x 系列, 含 CryptoUtil 依赖的经典 API) ----
+# (通过上面的 apt libjwt-dev 提供, 无需从源码构建)
 
 # ---- ppconsul (Consul C++ 客户端) ----
 RUN git clone --depth 1 --recursive https://github.com/oliora/ppconsul.git && \
@@ -61,13 +58,21 @@ RUN git clone --depth 1 --recursive https://github.com/oliora/ppconsul.git && \
     cmake --install ppconsul/build && ldconfig
 
 # ---- 阿里云 OSS C++ SDK (backup 目标使用) ----
+# 注: 该 SDK 默认以 -Werror 编译, 在新版 curl(8.x) 上会因 deprecated 声明而失败;
+#     去掉 -Werror 并显式关闭 deprecated 警告为错误。
 RUN git clone --depth 1 https://github.com/aliyun/aliyun-oss-cpp-sdk.git && \
-    cmake -S aliyun-oss-cpp-sdk -B aliyun-oss-cpp-sdk/build -DCMAKE_BUILD_TYPE=Release && \
+    grep -rlZ -- '-Werror' aliyun-oss-cpp-sdk --include=CMakeLists.txt 2>/dev/null | xargs -0 -r sed -i 's/-Werror//g' && \
+    cmake -S aliyun-oss-cpp-sdk -B aliyun-oss-cpp-sdk/build -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_FLAGS="-Wno-error=deprecated-declarations -Wno-deprecated-declarations" \
+          -DCMAKE_CXX_FLAGS="-Wno-error=deprecated-declarations -Wno-deprecated-declarations" && \
     cmake --build aliyun-oss-cpp-sdk/build -j"$(nproc)" && \
     cmake --install aliyun-oss-cpp-sdk/build && ldconfig
 
 # ---- 构建本项目 ----
 WORKDIR /app
+# libjwt 使用发行版软件包 (含 CryptoUtil 依赖的经典 API); 单独一层以复用上面的依赖缓存
+RUN apt-get update && apt-get install -y --no-install-recommends libjwt-dev \
+    && rm -rf /var/lib/apt/lists/*
 COPY . /app
 ENV LIBRARY_PATH=/usr/local/lib \
     LD_LIBRARY_PATH=/usr/local/lib \
@@ -81,7 +86,8 @@ FROM ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl3 zlib1g libprotobuf32t64 liblz4-1 libsnappy1v5 \
-        librabbitmq4 libjansson4 libcurl4 libmysqlclient21 \
+        librabbitmq4 libjansson4 libcurl4 libmysqlclient21 libjwt2 \
+        libboost-chrono1.83.0 libboost-system1.83.0 \
         ca-certificates netcat-openbsd default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 

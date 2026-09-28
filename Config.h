@@ -45,10 +45,10 @@ public:
     std::string oss_bucket()   { return get_str("oss_bucket",   "OSS_BUCKET",   ""); }
     int http_port()            { return get_int("http_port",    "HTTP_PORT",    8888); }
     int srpc_port()            { return get_int("srpc_port",    "SRPC_PORT",    1414); }
-    // 单文件大小上限 (字节), 默认 100 MB
-    long long max_file_size()  { return (long long)get_int("max_file_size", "MAX_FILE_SIZE", 104857600); }
-    // 每个用户的存储配额 (字节), 默认 1 GB
-    long long user_quota()     { return (long long)get_int("user_quota", "USER_QUOTA", 1073741824); }
+    // 单文件大小上限 (字节), 默认 10 GiB
+    long long max_file_size()  { return (long long)get_int("max_file_size", "MAX_FILE_SIZE", 10LL * 1024 * 1024 * 1024); }
+    // 每个用户的存储配额 (字节), 默认 1 TiB
+    long long user_quota()     { return (long long)get_int("user_quota", "USER_QUOTA", 1LL  * 1024 * 1024 * 1024 * 1024); }
 
 private:
     Config() { load(); }

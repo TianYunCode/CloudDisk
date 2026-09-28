@@ -51,7 +51,7 @@ jobs:
             build-essential cmake git pkg-config \
             libssl-dev zlib1g-dev protobuf-compiler libprotobuf-dev \
             liblz4-dev libsnappy-dev librabbitmq-dev libboost-all-dev \
-            libjansson-dev libcurl4-openssl-dev libmysqlclient-dev \
+            libjansson-dev libcurl4-openssl-dev libmysqlclient-dev libjwt-dev \
             default-mysql-client python3
 
       - name: 缓存自建依赖
@@ -72,9 +72,10 @@ jobs:
           git clone --depth 1 https://github.com/wfrest/wfrest.git && build wfrest
           git clone --depth 1 https://github.com/nlohmann/json.git && sudo cp -r json/single_include/nlohmann /usr/local/include/
           git clone --depth 1 https://github.com/alanxz/SimpleAmqpClient.git && build SimpleAmqpClient
-          git clone --depth 1 https://github.com/benmcollins/libjwt.git && build libjwt "-DENABLE_PIC=ON"
           git clone --depth 1 --recursive https://github.com/oliora/ppconsul.git && build ppconsul
-          git clone --depth 1 https://github.com/aliyun/aliyun-oss-cpp-sdk.git && build aliyun-oss-cpp-sdk
+          git clone --depth 1 https://github.com/aliyun/aliyun-oss-cpp-sdk.git
+          grep -rlZ -- '-Werror' aliyun-oss-cpp-sdk --include=CMakeLists.txt 2>/dev/null | xargs -0 -r sed -i 's/-Werror//g'
+          build aliyun-oss-cpp-sdk "-DCMAKE_C_FLAGS=-Wno-error=deprecated-declarations -DCMAKE_CXX_FLAGS=-Wno-error=deprecated-declarations"
 
       - name: 构建项目
         run: |

@@ -35,6 +35,7 @@ services:
     restart: unless-stopped
 
   app:
+    image: clouddisk:test
     build:
       context: .
       dockerfile: Dockerfile
