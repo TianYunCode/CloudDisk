@@ -27,6 +27,7 @@ set(CLOUDDISK_INCLUDE_DIRS
 # =============================== server (HTTP 网关) ==========================
 add_executable(server
     server/gateway/CloudiskServer.cpp
+    server/gateway/GatewaySupport.cpp
     server/gateway/main.cpp
     server/util/CryptoUtil.cpp
     server/util/Thumbnailer.cpp

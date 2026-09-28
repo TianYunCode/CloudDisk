@@ -136,4 +136,4 @@ CloudDisk/
 - Stage 0：✅ 完成（功能冻结于「用户活动日志」）。
 - Stage 1：✅ 完成——`app/android`、`app/ios` 占位；前端 `static/` → `web/`；本蓝图文档。
 - Stage 2：✅ 完成——C++ 源码迁入 `server/` 分层树（gateway/user-service/backup-service/rpc/common/config/util/infra），产物输出到 `bin/`；同步更新 CMake（`target_include_directories` 跨层解析裸 include）、Dockerfile、`.gitignore`/`.dockerignore`、`scripts/start.sh`、`docker/entrypoint.sh`、CI、BUILD.md。全量回归：构建干净、集成 173/0、e2e 14 套全绿。
-- Stage 3：下一步——拆分 3800 行单体 `server/gateway/CloudiskServer.cpp` 为分层翻译单元。
+- Stage 3：进行中——**3a ✅ 完成**：从单体 `CloudiskServer.cpp` 抽出共享支撑层 `GatewaySupport.{h,cpp}`（运行期配置全局、指标 `Metrics`、令牌注册表 `TokenRegistry`、文件/blob/JSON/SQL/审计/限速/Base32/TOTP/管理员守卫等通用工具），以 `extern` 声明 + 单一 `.cpp` 定义保证单一真源与资源确定性；`CloudiskServer.cpp` 3884→3442 行。全量回归：构建干净、集成 173/0、e2e 14 套全绿。**3b 待办**：按领域把 `register_*_module` 拆为独立翻译单元（Auth / File / Trash / Share / Admin / WebDAV / Extra）。
