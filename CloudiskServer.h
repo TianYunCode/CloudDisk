@@ -45,6 +45,7 @@ private:
     void register_webdav_module();
     void register_favorite_module();
     void register_search_module();
+    void register_version_module();
 private:
     // 名字中最好不要带具体的实现细节
     // 方便以后修改具体的实现

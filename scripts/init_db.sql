@@ -155,3 +155,18 @@ CREATE TABLE IF NOT EXISTS tbl_favorite (
     UNIQUE KEY uk_fav (uid, item_type, item_id),
     KEY idx_uid (uid, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 文件版本历史
+CREATE TABLE IF NOT EXISTS tbl_file_version (
+  id         BIGINT NOT NULL AUTO_INCREMENT,
+  file_id    BIGINT NOT NULL,
+  uid        INT NOT NULL,
+  hashcode   VARCHAR(128) NOT NULL,
+  size       BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  note       VARCHAR(256) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_file (file_id, id),
+  KEY idx_uid (uid),
+  KEY idx_hash (hashcode)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

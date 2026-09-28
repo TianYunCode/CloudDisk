@@ -386,6 +386,17 @@ Body：`{ oldPassword, newPassword }`。校验原密码后以新盐重算 sha256
 |---|---|
 | GET `/api/search?q=&limit=` | 跨全部目录按名称搜索当前用户的文件夹与文件（均跳过已删除）。`q` 支持中文（服务端做 URL 解码），LIKE 元字符 `% _ \` 已转义防误通配；空 `q` 返回空列表；`limit` 默认 50、上限 200。返回 `{items:[{type,id,name,parentId,size}], count}`，文件夹在前 |
 
+## 文件版本历史
+
+文件内容寻址（blob = 内容哈希）。上传新版本或恢复前，先把“当前”版本的 (哈希, 大小) 归档为一条历史版本，再让文件指向新内容；每个文件最多保留最近 50 个历史版本。历史版本 blob 会随文件被彻底删除（清空/永久删除回收站）而一并回收。
+
+| 方法 & 路径 | 说明 |
+|---|---|
+| POST `/api/file/version?fileId=` （multipart，取表单首个文件字段） | 上传该文件的新版本；内容未变化则返回 `{changed:false}` 不新增；超配额 `413`，文件不属于自己或已删除 `404`。返回 `{changed, hash, size}` |
+| GET `/api/file/versions?fileId=` | 返回 `{current:{filename,hash,size,updatedAt}, versions:[{versionId,hash,size,createdAt}], count}`，历史按新→旧 |
+| POST `/api/file/version/restore` `{fileId, versionId}` | 恢复到指定历史版本（当前版本会被归档，可再次回滚）；目标内容已被回收返回 `410`；相同内容 `{changed:false}` |
+| GET `/api/file/version/download?versionId=` | 下载指定历史版本内容（支持 `?token=`），非本人版本 `404` |
+
 ---
 
 ## 其它

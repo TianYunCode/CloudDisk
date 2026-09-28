@@ -399,6 +399,31 @@ curl -s -u "$P6U:$WT" -X PROPFIND -H 'Depth: 1' "$BASE/webdav/it/" | grep -q "a.
 [ "$(wcode -X DELETE "$BASE/webdav/it")" = "204" ] && ok "WebDAV DELETE 204" || bad "WebDAV DELETE"
 [ "$(wcode -X PROPFIND -H 'Depth: 0' "$BASE/webdav/it/")" = "404" ] && ok "WebDAV 删除后 404" || bad "WebDAV 删除后应 404"
 
+echo "== 文件版本历史 =="
+printf 'ver-content-1' > /tmp/it_ver.txt
+curl -s -H "Authorization: Bearer $TOKEN" -X POST "$BASE/api/file/upload" -F "f=@/tmp/it_ver.txt" >/dev/null
+VFID=$(fid_of it_ver.txt)
+VC0=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/file/versions?fileId=$VFID" | jq "d['data']['count']")
+[ "$VC0" = "0" ] && ok "新文件无历史版本" || bad "初始版本数应为0" "$VC0"
+printf 'ver-content-2-longer' > /tmp/it_ver2.txt
+VUP=$(curl -s -H "Authorization: Bearer $TOKEN" -X POST "$BASE/api/file/version?fileId=$VFID" -F "f=@/tmp/it_ver2.txt" | jq "d['data']['changed']")
+[ "$VUP" = "True" ] && ok "上传新版本 changed=true" || bad "上传新版本失败" "$VUP"
+VC1=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/file/versions?fileId=$VFID" | jq "d['data']['count']")
+[ "$VC1" = "1" ] && ok "历史版本数=1" || bad "历史版本数应为1" "$VC1"
+VSAME=$(curl -s -H "Authorization: Bearer $TOKEN" -X POST "$BASE/api/file/version?fileId=$VFID" -F "f=@/tmp/it_ver2.txt" | jq "d['data']['changed']")
+[ "$VSAME" = "False" ] && ok "相同内容不产生新版本" || bad "重复内容应 changed=false" "$VSAME"
+VID=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/file/versions?fileId=$VFID" | jq "d['data']['versions'][0]['versionId']")
+VRES=$(curl -s -H "Authorization: Bearer $TOKEN" -X POST "$BASE/api/file/version/restore" -H 'Content-Type: application/json' -d "{\"fileId\":$VFID,\"versionId\":$VID}" | jq "d['data']['changed']")
+[ "$VRES" = "True" ] && ok "恢复到历史版本" || bad "恢复失败" "$VRES"
+VDL=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/file/download?id=$VFID")
+[ "$VDL" = "ver-content-1" ] && ok "恢复后内容为初始版本" || bad "恢复内容不符" "$VDL"
+VID2=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/file/versions?fileId=$VFID" | jq "d['data']['versions'][0]['versionId']")
+VVDL=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/file/version/download?versionId=$VID2")
+[ -n "$VVDL" ] && ok "下载历史版本内容非空" || bad "历史版本下载为空"
+assert_code GET "/api/file/versions?fileId=99999999" 404 "" "$TOKEN"
+assert_code POST /api/file/version/restore 400 '{"fileId":0,"versionId":0}' "$TOKEN"
+assert_code GET "/api/file/versions?fileId=$VFID" 401
+
 echo "== 全局搜索 =="
 SF=$(curl -s -X POST "$BASE/api/folder/create" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"搜索夹QZX","parentId":0}' | jq "d['data']['id']")
 # 中文关键字 (URL 编码), 应命中该文件夹

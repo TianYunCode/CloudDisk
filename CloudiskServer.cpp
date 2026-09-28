@@ -542,6 +542,7 @@ void CloudiskServer::register_modules()
     register_webdav_module();
     register_favorite_module();
     register_search_module();
+    register_version_module();
 }
 
 // ----- 静态资源与页面 ----------------------------------------------------------
@@ -1748,8 +1749,10 @@ void CloudiskServer::register_trash_module()
             fileCond += ")";
             if (!any) { api::ok(resp, {}, "无变化"); return; }
 
-            // 1) 先取要删除文件的 hash 集合 (用于 blob GC)
-            string hsql = "SELECT DISTINCT hashcode FROM tbl_file WHERE " + fileCond;
+            // 1) 先取要删除文件的 hash 集合 (含历史版本 blob, 用于 blob GC)
+            string hsql = "SELECT DISTINCT hashcode FROM tbl_file WHERE " + fileCond
+                        + " UNION SELECT DISTINCT hashcode FROM tbl_file_version WHERE file_id IN "
+                          "(SELECT id FROM (SELECT id FROM tbl_file WHERE " + fileCond + ") zf)";
             push_mysql(s, hsql, [resp, su, fileCond, pathOf](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 500, 500, "删除失败"); return; }
                 auto hashes = std::make_shared<std::vector<string>>();
@@ -1757,8 +1760,10 @@ void CloudiskServer::register_trash_module()
                 std::vector<MySQLCell> row;
                 while (c.fetch_row(row)) hashes->push_back(row[0].as_string());
 
-                // 2) 删除文件行 + 文件夹行 (子树)
-                string del = "DELETE FROM tbl_file WHERE " + fileCond + "; ";
+                // 2) 删除历史版本行 (其 blob 若不再被引用将在下方回收) + 文件行 + 文件夹行 (子树)
+                string del = "DELETE FROM tbl_file_version WHERE file_id IN "
+                             "(SELECT id FROM (SELECT id FROM tbl_file WHERE " + fileCond + ") zf); "
+                             "DELETE FROM tbl_file WHERE " + fileCond + "; ";
                 if (!pathOf->empty()) {
                     string likes;
                     for (auto& kv : *pathOf) { if (!likes.empty()) likes += " OR "; likes += "path LIKE " + SqlUtil::quote(kv.second + "%"); }
@@ -1770,7 +1775,8 @@ void CloudiskServer::register_trash_module()
                     // 3) 找出仍被引用的 hash, 其余的 blob 可安全回收
                     string in_list;
                     for (auto& h : *hashes) { if (!in_list.empty()) in_list += ","; in_list += SqlUtil::quote(h); }
-                    string refsql = "SELECT DISTINCT hashcode FROM tbl_file WHERE hashcode IN (" + in_list + ")";
+                    string refsql = "SELECT DISTINCT hashcode FROM tbl_file WHERE hashcode IN (" + in_list + ")"
+                    " UNION SELECT DISTINCT hashcode FROM tbl_file_version WHERE hashcode IN (" + in_list + ")";
                     push_mysql(series_of(t2), refsql, [resp, hashes](WFMySQLTask* t3) {
                         std::set<string> alive;
                         if (mysql_ok(t3)) {
@@ -1812,7 +1818,9 @@ void CloudiskServer::register_trash_module()
         if (!api::require_auth(req, resp, user)) return;
         string su = std::to_string(user.id);
 
-        string hsql = "SELECT DISTINCT hashcode FROM tbl_file WHERE deleted=1 AND uid=" + su;
+        string hsql = "SELECT DISTINCT hashcode FROM tbl_file WHERE deleted=1 AND uid=" + su
+                    + " UNION SELECT DISTINCT hashcode FROM tbl_file_version WHERE file_id IN "
+                      "(SELECT id FROM (SELECT id FROM tbl_file WHERE deleted=1 AND uid=" + su + ") zf)";
         push_mysql(series, hsql, [resp, su](WFMySQLTask* t) {
             if (!mysql_ok(t)) { api::fail(resp, 500, 500, "清空失败"); return; }
             auto hashes = std::make_shared<std::vector<string>>();
@@ -1820,14 +1828,17 @@ void CloudiskServer::register_trash_module()
             std::vector<MySQLCell> row;
             while (c.fetch_row(row)) hashes->push_back(row[0].as_string());
 
-            string del = "DELETE FROM tbl_file WHERE deleted=1 AND uid=" + su + "; "
+            string del = "DELETE FROM tbl_file_version WHERE file_id IN "
+                         "(SELECT id FROM (SELECT id FROM tbl_file WHERE deleted=1 AND uid=" + su + ") zf); "
+                         "DELETE FROM tbl_file WHERE deleted=1 AND uid=" + su + "; "
                          "DELETE FROM tbl_folder WHERE deleted=1 AND uid=" + su + "; ";
             push_mysql(series_of(t), del, [resp, hashes](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "清空失败"); return; }
                 if (hashes->empty()) { api::ok(resp, {}, "回收站已清空"); return; }
                 string in_list;
                 for (auto& h : *hashes) { if (!in_list.empty()) in_list += ","; in_list += SqlUtil::quote(h); }
-                string refsql = "SELECT DISTINCT hashcode FROM tbl_file WHERE hashcode IN (" + in_list + ")";
+                string refsql = "SELECT DISTINCT hashcode FROM tbl_file WHERE hashcode IN (" + in_list + ")"
+                    " UNION SELECT DISTINCT hashcode FROM tbl_file_version WHERE hashcode IN (" + in_list + ")";
                 push_mysql(series_of(t2), refsql, [resp, hashes](WFMySQLTask* t3) {
                     std::set<string> alive;
                     if (mysql_ok(t3)) {
@@ -3384,6 +3395,162 @@ void CloudiskServer::register_search_module()
                 }
                 api::ok(resp, {{"items", *items}, {"count", (long long)items->size()}}, "ok");
             });
+        });
+    });
+}
+
+// =============================================================================
+// 文件版本历史: 上传新版本 / 列出 / 恢复 / 下载指定版本
+// 说明: 文件内容寻址 (blob=hashcode)。上传新版本或恢复前, 先把“当前”版本的
+//       (hashcode,size) 归档进 tbl_file_version, 再更新 tbl_file 指向新 blob。
+//       每个文件最多保留最近 50 个历史版本。blob 回收站 GC 已将本表纳入存活判定。
+// =============================================================================
+void CloudiskServer::register_version_module()
+{
+    // ---- 上传新版本 (multipart, 取表单第一个文件字段) ----
+    m_server.POST("/api/file/version", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        long long fileId = SqlUtil::to_uint(req->has_query("fileId") ? req->query("fileId") : "", 0, 1000000000000LL);
+        if (fileId <= 0) { api::fail(resp, 400, 400, "缺少 fileId"); return; }
+        Form& form = req->form();
+        const string* cptr = nullptr;
+        for (auto& kv : form) { if (!kv.second.first.empty()) { cptr = &kv.second.second; break; } }
+        if (!cptr) { api::fail(resp, 400, 400, "没有有效文件"); return; }
+        if ((long long)cptr->size() > g_max_file_size) { api::fail(resp, 413, 413, "文件超过大小上限"); return; }
+        auto content = std::make_shared<string>(*cptr);
+        long long uid = user.id; string su = std::to_string(uid), sfid = std::to_string(fileId);
+
+        string q1 = "SELECT hashcode, size FROM tbl_file WHERE deleted=0 AND uid=" + su + " AND id=" + sfid;
+        push_mysql(series, q1, [resp, uid, su, sfid, content](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "查询失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
+            if (!c.fetch_row(row)) { api::fail(resp, 404, 404, "文件不存在"); return; }
+            auto oldHash = std::make_shared<string>(row[0].as_string());
+            long long oldSize = (long long)row[1].as_ulonglong();
+            push_mysql(series_of(t), usage_quota_sql(uid), [resp, su, sfid, content, oldHash, oldSize](WFMySQLTask* tq) {
+                long long used = 0, quota = g_user_quota;
+                if (mysql_ok(tq)) { MySQLResultCursor c2{ tq->get_resp() }; std::vector<MySQLCell> r2;
+                    if (c2.fetch_row(r2)) { quota = cell_ll(r2[0]); used = (long long)r2[1].as_ulonglong(); } }
+                long long newSize = (long long)content->size();
+                long long delta = newSize - oldSize;
+                if (delta > 0 && used + delta > quota) { api::fail(resp, 413, 413, "存储空间不足"); return; }
+                string newHash = CryptoUtil::generate_hashcode(content->c_str(), content->size());
+                if (newHash == *oldHash) { api::ok(resp, {{"changed", false}}, "内容未变化, 未创建新版本"); return; }
+                bool isNew = write_blob_if_absent(newHash, *content);
+                if (isNew) publish_oss_backup(newHash);
+                string up =
+                    "INSERT INTO tbl_file_version (file_id, uid, hashcode, size) VALUES ("
+                    + sfid + ", " + su + ", " + SqlUtil::quote(*oldHash) + ", " + std::to_string(oldSize) + "); "
+                    "UPDATE tbl_file SET hashcode=" + SqlUtil::quote(newHash) + ", size=" + std::to_string(newSize)
+                    + " WHERE id=" + sfid + " AND uid=" + su + "; "
+                    "DELETE FROM tbl_file_version WHERE file_id=" + sfid + " AND uid=" + su
+                    + " AND id NOT IN (SELECT id FROM (SELECT id FROM tbl_file_version WHERE file_id=" + sfid
+                    + " ORDER BY id DESC LIMIT 50) z); ";
+                push_mysql(series_of(tq), up, [resp, newHash, newSize](WFMySQLTask* t2) {
+                    if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "保存版本失败"); return; }
+                    g_metrics.uploads++; g_metrics.upload_bytes += newSize;
+                    api::ok(resp, {{"changed", true}, {"hash", newHash}, {"size", newSize}}, "已上传新版本");
+                });
+            });
+        });
+    });
+
+    // ---- 列出某文件的当前版本 + 历史版本 (最新在前) ----
+    m_server.GET("/api/file/versions", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        long long fileId = SqlUtil::to_uint(req->has_query("fileId") ? req->query("fileId") : "", 0, 1000000000000LL);
+        if (fileId <= 0) { api::fail(resp, 400, 400, "缺少 fileId"); return; }
+        string su = std::to_string(user.id), sfid = std::to_string(fileId);
+        string q1 = "SELECT filename, hashcode, size, DATE_FORMAT(last_update,'%Y-%m-%d %H:%i:%s') "
+                    "FROM tbl_file WHERE deleted=0 AND uid=" + su + " AND id=" + sfid;
+        push_mysql(series, q1, [resp, su, sfid](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "查询失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
+            if (!c.fetch_row(row)) { api::fail(resp, 404, 404, "文件不存在"); return; }
+            auto cur = std::make_shared<nlohmann::json>(nlohmann::json{
+                {"filename", row[0].as_string()}, {"hash", row[1].as_string()},
+                {"size", (long long)row[2].as_ulonglong()}, {"updatedAt", row[3].as_string()} });
+            string q2 = "SELECT id, hashcode, size, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') "
+                        "FROM tbl_file_version WHERE uid=" + su + " AND file_id=" + sfid + " ORDER BY id DESC";
+            push_mysql(series_of(t), q2, [resp, cur](WFMySQLTask* t2) {
+                nlohmann::json versions = nlohmann::json::array();
+                if (mysql_ok(t2)) {
+                    MySQLResultCursor c2{ t2->get_resp() }; std::vector<MySQLCell> r;
+                    while (c2.fetch_row(r))
+                        versions.push_back({ {"versionId", cell_ll(r[0])}, {"hash", r[1].as_string()},
+                                             {"size", (long long)r[2].as_ulonglong()}, {"createdAt", r[3].as_string()} });
+                }
+                api::ok(resp, {{"current", *cur}, {"versions", versions}, {"count", (long long)versions.size()}}, "ok");
+            });
+        });
+    });
+
+    // ---- 恢复到指定历史版本 (当前版本会被归档, 可再次回滚) ----
+    m_server.POST("/api/file/version/restore", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        nlohmann::json in;
+        if (!parse_body(req, in)) { api::fail(resp, 400, 400, "请求体格式错误"); return; }
+        long long fileId = in.contains("fileId") && in["fileId"].is_number() ? in["fileId"].get<long long>() : 0;
+        long long verId  = in.contains("versionId") && in["versionId"].is_number() ? in["versionId"].get<long long>() : 0;
+        if (fileId <= 0 || verId <= 0) { api::fail(resp, 400, 400, "参数不合法"); return; }
+        long long uid = user.id; string su = std::to_string(uid), sfid = std::to_string(fileId), svid = std::to_string(verId);
+        string q1 = "SELECT f.hashcode, f.size, v.hashcode, v.size FROM tbl_file f "
+                    "JOIN tbl_file_version v ON v.file_id=f.id AND v.uid=f.uid "
+                    "WHERE f.id=" + sfid + " AND f.uid=" + su + " AND f.deleted=0 AND v.id=" + svid;
+        push_mysql(series, q1, [resp, uid, su, sfid](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "查询失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
+            if (!c.fetch_row(row)) { api::fail(resp, 404, 404, "文件或版本不存在"); return; }
+            auto curHash = std::make_shared<string>(row[0].as_string());
+            long long curSize = (long long)row[1].as_ulonglong();
+            auto tgtHash = std::make_shared<string>(row[2].as_string());
+            long long tgtSize = (long long)row[3].as_ulonglong();
+            if (!file_exists(g_blob_dir + "/" + *tgtHash)) { api::fail(resp, 410, 410, "该版本内容已被回收, 无法恢复"); return; }
+            push_mysql(series_of(t), usage_quota_sql(uid), [resp, su, sfid, curHash, curSize, tgtHash, tgtSize](WFMySQLTask* tq) {
+                long long used = 0, quota = g_user_quota;
+                if (mysql_ok(tq)) { MySQLResultCursor c2{ tq->get_resp() }; std::vector<MySQLCell> r2;
+                    if (c2.fetch_row(r2)) { quota = cell_ll(r2[0]); used = (long long)r2[1].as_ulonglong(); } }
+                long long delta = tgtSize - curSize;
+                if (delta > 0 && used + delta > quota) { api::fail(resp, 413, 413, "存储空间不足"); return; }
+                if (*curHash == *tgtHash) { api::ok(resp, {{"changed", false}}, "已是该版本内容"); return; }
+                string up =
+                    "INSERT INTO tbl_file_version (file_id, uid, hashcode, size) VALUES ("
+                    + sfid + ", " + su + ", " + SqlUtil::quote(*curHash) + ", " + std::to_string(curSize) + "); "
+                    "UPDATE tbl_file SET hashcode=" + SqlUtil::quote(*tgtHash) + ", size=" + std::to_string(tgtSize)
+                    + " WHERE id=" + sfid + " AND uid=" + su + "; "
+                    "DELETE FROM tbl_file_version WHERE file_id=" + sfid + " AND uid=" + su
+                    + " AND id NOT IN (SELECT id FROM (SELECT id FROM tbl_file_version WHERE file_id=" + sfid
+                    + " ORDER BY id DESC LIMIT 50) z); ";
+                push_mysql(series_of(tq), up, [resp, tgtHash, tgtSize](WFMySQLTask* t2) {
+                    if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "恢复失败"); return; }
+                    api::ok(resp, {{"changed", true}, {"hash", *tgtHash}, {"size", tgtSize}}, "已恢复到该版本");
+                });
+            });
+        });
+    });
+
+    // ---- 下载指定历史版本 ----
+    m_server.GET("/api/file/version/download", [](const HttpReq* req, HttpResp* resp, SeriesWork* series) {
+        User user;
+        if (!api::require_auth(req, resp, user)) return;
+        long long verId = SqlUtil::to_uint(req->has_query("versionId") ? req->query("versionId") : "", 0, 1000000000000LL);
+        if (verId <= 0) { api::fail(resp, 400, 400, "缺少 versionId"); return; }
+        string sql = "SELECT v.hashcode, f.filename FROM tbl_file_version v "
+                     "JOIN tbl_file f ON f.id=v.file_id "
+                     "WHERE v.id=" + std::to_string(verId) + " AND v.uid=" + std::to_string(user.id);
+        push_mysql(series, sql, [resp](WFMySQLTask* t) {
+            if (!mysql_ok(t)) { api::fail(resp, 500, 500, "下载失败"); return; }
+            MySQLResultCursor c{ t->get_resp() }; std::vector<MySQLCell> row;
+            if (!c.fetch_row(row)) { api::fail(resp, 404, 404, "版本不存在"); return; }
+            string blob = g_blob_dir + "/" + row[0].as_string();
+            string fname = row[1].as_string();
+            if (!file_exists(blob)) { api::fail(resp, 404, 404, "版本内容缺失"); return; }
+            g_metrics.downloads++; g_metrics.download_bytes += (long long)file_size_of(blob);
+            resp->add_header("Content-Disposition", "attachment; filename=\"" + fname + "\"");
+            resp->File(blob);
         });
     });
 }

@@ -211,6 +211,7 @@
           '<button class="act" data-act="download" title="下载">' + svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>') + '</button>' +
           '<button class="act" data-act="rename" title="重命名">' + svg('<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>') + '</button>' +
           '<button class="act" data-act="share" title="分享">' + svg(SHARE_ICON) + '</button>' +
+          '<button class="act" data-act="versions" title="历史版本">' + svg('<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/>') + '</button>' +
           '<button class="act danger" data-act="delete" title="删除">' + svg('<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>') + '</button>' +
         '</div></td>';
       tr.querySelector('.txt').textContent = f.filename;
@@ -227,6 +228,7 @@
       tr.querySelector('[data-act="download"]').onclick = () => doDownload(f);
       tr.querySelector('[data-act="rename"]').onclick = () => doRenameFile(f);
       tr.querySelector('[data-act="share"]').onclick = () => doShare('file', f);
+      tr.querySelector('[data-act="versions"]').onclick = () => openVersions(f);
       tr.querySelector('[data-act="delete"]').onclick = () => doDelete([f.id], [], f.filename);
       body.appendChild(tr);
     });
@@ -260,6 +262,61 @@
     a.href = Api.downloadUrl(f.id);
     a.download = f.filename;
     document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // ---------------- 历史版本 ----------------
+  function openVersions(f) {
+    openModal({
+      title: '历史版本 · ' + f.filename,
+      body: '<div class="ver-wrap">' +
+              '<div class="ver-upload"><label class="btn btn-primary btn-sm" for="verFile">上传新版本</label>' +
+              '<input type="file" id="verFile" hidden><span class="ver-hint" id="verHint">上传会把当前内容存为一个历史版本</span></div>' +
+              '<div class="ver-list" id="verList"><div class="empty-cell">加载中…</div></div>' +
+            '</div>',
+      confirmText: '关闭',
+      onConfirm: () => true,
+      onOpen: () => {
+        loadVer();
+        $('verFile').onchange = async () => {
+          const file = $('verFile').files[0]; if (!file) return;
+          $('verHint').textContent = '上传中…';
+          try {
+            const r = await Api.versionUpload(f.id, file);
+            toast(r && r.changed === false ? '内容未变化' : '已上传新版本', 'ok');
+            loadVer(); loadList(); loadUser();
+          } catch (e) { toast(e.message || '上传失败', 'err'); }
+          $('verFile').value = ''; $('verHint').textContent = '上传会把当前内容存为一个历史版本';
+        };
+      },
+    });
+    async function loadVer() {
+      const box = $('verList'); if (!box) return;
+      box.innerHTML = '<div class="empty-cell">加载中…</div>';
+      try {
+        const r = await Api.versions(f.id);
+        const cur = r.current || {}; const vs = r.versions || [];
+        let html = '<div class="ver-row ver-cur"><div class="ver-meta"><b>当前版本</b>' +
+                   '<span class="muted">' + humanSize(cur.size || 0) + ' · ' + escapeHtml(cur.updatedAt || '') + '</span></div>' +
+                   '<div class="ver-ops"><span class="tag tag-on">最新</span></div></div>';
+        if (!vs.length) {
+          html += '<div class="empty-cell">暂无历史版本</div>';
+        } else {
+          html += vs.map(v =>
+            '<div class="ver-row"><div class="ver-meta">版本 #' + v.versionId +
+            '<span class="muted">' + humanSize(v.size) + ' · ' + escapeHtml(v.createdAt || '') + '</span></div>' +
+            '<div class="ver-ops">' +
+              '<a class="btn btn-sm btn-ghost" href="' + Api.versionDownloadUrl(v.versionId) + '">下载</a>' +
+              '<button class="btn btn-sm btn-ghost" data-restore="' + v.versionId + '">恢复</button>' +
+            '</div></div>').join('');
+        }
+        box.innerHTML = html;
+        box.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => {
+          b.disabled = true;
+          try { await Api.versionRestore(f.id, Number(b.dataset.restore)); toast('已恢复到该版本', 'ok'); loadVer(); loadList(); loadUser(); }
+          catch (e) { toast(e.message || '恢复失败', 'err'); b.disabled = false; }
+        });
+      } catch (e) { box.innerHTML = '<div class="empty-cell">加载失败</div>'; }
+    }
   }
 
   function doRenameFile(f) {
