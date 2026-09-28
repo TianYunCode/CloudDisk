@@ -174,13 +174,14 @@ docker compose up -d --build
 ## 🧪 测试
 
 ```bash
+./bin/unit_tests                   # 25 项纯逻辑单元测试（SqlUtil/Totp/BlobStore/CryptoUtil，无需服务）
 bash tests/integration.sh          # 173 项 API/边界/安全集成测试（含令牌/WebDAV/指标/收藏/搜索/版本/统计/标签/活动）
 ```
 
 浏览器端到端测试（如环境可下载 Chromium）见 `tests/e2e/`：
 `qr_validate`(11) · `e2e_p1`(11) · `e2e_share`(12) · `e2e_preview`(9) · `e2e_upload`(6) · `e2e_account`(11) · `e2e_devtoken`(7) · `e2e_fav`(5) · `e2e_search`(6) · `e2e_version`(7) · `e2e_stats`(8) · `e2e_tags`(7) · `e2e_activity`(7) · `e2e`(12 综合冒烟)。
 
-CI（`.github/workflows/ci.yml`）会在推送/PR 时自动起中间件、编译依赖与项目并跑集成测试。
+CI（`.github/workflows/ci.yml`）会在推送/PR 时自动起中间件、编译依赖与项目，并依次跑单元测试与集成测试。
 
 ---
 

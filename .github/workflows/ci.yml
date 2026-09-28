@@ -81,7 +81,12 @@ jobs:
         run: |
           mkdir -p build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release
-          make -j"$(nproc)" server UserService backup
+          make -j"$(nproc)" server UserService backup unit_tests
+
+      - name: 单元测试 (纯逻辑, 无需服务)
+        run: |
+          export LD_LIBRARY_PATH=/usr/local/lib
+          ./bin/unit_tests
 
       - name: 初始化数据库
         run: mysql -h 127.0.0.1 -uroot -p1234 test < scripts/init_db.sql

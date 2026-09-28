@@ -110,11 +110,8 @@ int  rl_blocked(const std::string& key);       // 返回剩余冷却秒数 (>0 �
 void rl_on_fail(const std::string& key);
 void rl_on_success(const std::string& key);
 
-// ----- Base32 / TOTP (两步验证) -----------------------------------------------
-std::string base32_encode(const unsigned char* data, std::size_t len);
-bool base32_decode(const std::string& in, std::vector<unsigned char>& out);
-unsigned totp_at(const std::vector<unsigned char>& key, uint64_t counter);
-bool totp_verify(const std::string& secretB32, const std::string& codeStr);
+// ----- Base32 / TOTP (两步验证) —— 纯算法, 见 server/util/Totp.h -----------------
+#include "Totp.h"
 
 // ----- 管理员守卫 -------------------------------------------------------------
 void guard_admin(SeriesWork* series, const User& user, wfrest::HttpResp* resp,

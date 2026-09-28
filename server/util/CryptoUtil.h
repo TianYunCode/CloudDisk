@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <jwt.h>
+#include <openssl/evp.h>
 
 #include "User.h"
 class CryptoUtil

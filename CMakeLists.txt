@@ -39,6 +39,7 @@ add_executable(server
     server/gateway/main.cpp
     server/util/CryptoUtil.cpp
     server/util/Thumbnailer.cpp
+    server/util/Totp.cpp
     server/rpc/UserService.pb.cpp
 )
 target_include_directories(server PRIVATE ${CLOUDDISK_INCLUDE_DIRS})
@@ -89,6 +90,24 @@ target_link_libraries(UserService PRIVATE
     lz4
     snappy
     protobuf
+    jwt
+    ssl
+    crypto
+)
+
+# =============================== unit_tests (纯逻辑单元测试) ==================
+# 覆盖已抽出的纯函数/值对象层 (SqlUtil / Totp / LocalBlobStore / CryptoUtil),
+# 无需运行服务或数据库。构建后执行 ./bin/unit_tests 即可。
+add_executable(unit_tests
+    tests/unit/unit_tests.cpp
+    server/util/Totp.cpp
+    server/util/CryptoUtil.cpp
+    server/infra/BlobStore.cpp
+)
+target_include_directories(unit_tests PRIVATE ${CLOUDDISK_INCLUDE_DIRS})
+target_compile_options(unit_tests PRIVATE -g)
+target_link_libraries(unit_tests PRIVATE
+    SimpleAmqpClient
     jwt
     ssl
     crypto
