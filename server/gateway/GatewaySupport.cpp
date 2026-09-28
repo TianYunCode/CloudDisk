@@ -29,6 +29,7 @@
 #include "Log.h"
 #include "SqlUtil.h"
 #include "ApiResp.h"
+#include "RateLimiter.h"
 
 using namespace std;
 using namespace wfrest;
@@ -297,39 +298,23 @@ void audit_log(long long uid, const string& username, const string& action, cons
     t->start();
 }
 
-// ---- 登录失败限速 (进程内, 按 用户名|IP 计数) ----
+// ---- 登录失败限速 (进程内, 按 用户名|IP 计数; 策略实现见 util/RateLimiter) ----
 namespace {
-struct RlEntry { int fails = 0; time_t first = 0; time_t blockUntil = 0; };
-std::mutex g_rl_mutex;
-std::unordered_map<string, RlEntry> g_rl;
-const int RL_MAX_FAILS = 5;      // 窗口内最大失败次数
-const int RL_WINDOW    = 300;    // 统计窗口(秒)
-const int RL_COOLDOWN  = 300;    // 触发后冷却(秒)
+RateLimiter g_login_rl(5, 300, 300);   // 窗口内最多 5 次失败, 300s 窗口, 300s 冷却
 } // namespace
 
 // 返回剩余冷却秒数(>0 表示被限流)
 int rl_blocked(const string& key)
 {
-    std::lock_guard<std::mutex> lk(g_rl_mutex);
-    auto it = g_rl.find(key);
-    if (it == g_rl.end()) return 0;
-    time_t now = time(nullptr);
-    if (it->second.blockUntil > now) return (int)(it->second.blockUntil - now);
-    return 0;
+    return g_login_rl.blocked(key, time(nullptr));
 }
 void rl_on_fail(const string& key)
 {
-    std::lock_guard<std::mutex> lk(g_rl_mutex);
-    time_t now = time(nullptr);
-    RlEntry& e = g_rl[key];
-    if (now - e.first > RL_WINDOW) { e.first = now; e.fails = 0; }
-    e.fails++;
-    if (e.fails >= RL_MAX_FAILS) { e.blockUntil = now + RL_COOLDOWN; e.fails = 0; e.first = now; }
+    g_login_rl.onFail(key, time(nullptr));
 }
 void rl_on_success(const string& key)
 {
-    std::lock_guard<std::mutex> lk(g_rl_mutex);
-    g_rl.erase(key);
+    g_login_rl.onSuccess(key);
 }
 
 // ---- Base32 / TOTP: 已抽出到 server/util/Totp.{h,cpp} (见 GatewaySupport.h 转发) ----

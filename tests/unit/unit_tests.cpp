@@ -18,6 +18,7 @@
 #include "SqlUtil.h"
 #include "Totp.h"
 #include "FileType.h"
+#include "RateLimiter.h"
 #include "BlobStore.h"
 #include "CryptoUtil.h"
 
@@ -93,6 +94,32 @@ static void test_filetype()
     CHECK(!is_thumbnailable("a.svg"), "svg 非位图不可缩略");
 }
 
+static void test_ratelimiter()
+{
+    std::printf("== RateLimiter ==\n");
+    RateLimiter rl(3, 100, 60);   // 3 次失败 / 100s 窗口 / 60s 冷却
+    const std::string k = "user|1.2.3.4";
+    std::time_t t = 1000;
+    CHECK(rl.blocked(k, t) == 0, "初始未限流");
+    rl.onFail(k, t); rl.onFail(k, t);
+    CHECK(rl.blocked(k, t) == 0, "2 次失败未达阈值");
+    rl.onFail(k, t);   // 第 3 次 -> 触发冷却
+    CHECK(rl.blocked(k, t) == 60, "达阈值后冷却 60s");
+    CHECK(rl.blocked(k, t + 30) == 30, "冷却剩余随时间递减");
+    CHECK(rl.blocked(k, t + 60) == 0, "冷却到期解除");
+    // onSuccess 清除计数
+    RateLimiter rl2(3, 100, 60);
+    rl2.onFail(k, t); rl2.onFail(k, t);
+    rl2.onSuccess(k);
+    rl2.onFail(k, t);
+    CHECK(rl2.blocked(k, t) == 0, "成功后计数清零, 再失败不立即限流");
+    // 窗口过期后失败计数重置
+    RateLimiter rl3(3, 100, 60);
+    rl3.onFail(k, t); rl3.onFail(k, t);
+    rl3.onFail(k, t + 200);   // 超过窗口 -> 计为新窗口第 1 次
+    CHECK(rl3.blocked(k, t + 200) == 0, "窗口过期后计数重置");
+}
+
 static void test_crypto()
 {
     std::printf("== CryptoUtil ==\n");
@@ -111,6 +138,7 @@ int main()
     test_totp();
     test_blobstore();
     test_filetype();
+    test_ratelimiter();
     test_crypto();
     std::printf("\n结果: %d 通过, %d 失败 (共 %d)\n", g_total - g_fail, g_fail, g_total);
     return g_fail == 0 ? 0 : 1;

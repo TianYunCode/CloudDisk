@@ -41,6 +41,7 @@ add_executable(server
     server/util/Thumbnailer.cpp
     server/util/Totp.cpp
     server/util/FileType.cpp
+    server/util/RateLimiter.cpp
     server/rpc/UserService.pb.cpp
 )
 target_include_directories(server PRIVATE ${CLOUDDISK_INCLUDE_DIRS})
@@ -103,6 +104,7 @@ add_executable(unit_tests
     tests/unit/unit_tests.cpp
     server/util/Totp.cpp
     server/util/FileType.cpp
+    server/util/RateLimiter.cpp
     server/util/CryptoUtil.cpp
     server/infra/BlobStore.cpp
 )
