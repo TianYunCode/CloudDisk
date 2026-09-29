@@ -240,6 +240,12 @@ void CloudiskServer::register_filelist_module()
                         {"createdAt",  rec[4].as_datetime()},
                         {"lastUpdate", rec[5].as_datetime()},
                         {"tagIds",     tagIds},
+                        // 权威缩略图可用性: 与 /api/file/thumb 内部使用同一个
+                        // is_thumbnailable(), 前端据此决定是否请求缩略图。
+                        // 由后端下发而非前端按扩展名自行猜测, 避免"浏览器能预览
+                        // 为图片"与"后端能生成缩略图"两个概念混淆 —— 后者不含
+                        // webp/svg/ico, 前端猜错就会白发一次 404 并出现回退闪烁。
+                        {"hasThumb",   is_thumbnailable(rec[1].as_string())},
                     });
                 }
                 (*out)["total"] = *total;

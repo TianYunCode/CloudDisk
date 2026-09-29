@@ -136,6 +136,14 @@
     syncBatchBar();
   }
 
+  // 是否请求缩略图: 以后端下发的 hasThumb 为准 (后端 is_thumbnailable 的权威结论)。
+  // 不能改用 isImage(): "浏览器能预览为图片" 与 "后端能生成缩略图" 是两个概念,
+  // 前者含 webp/svg/ico 而后者不含 —— 猜错会白发一次 404 并出现"图片→回退图标"闪烁。
+  // hasThumb 缺失时 (旧响应/异常) 退回 isImage 以保持可用。
+  function canThumb(f) {
+    return typeof f.hasThumb === 'boolean' ? f.hasThumb : isImage(f.filename);
+  }
+
   function renderList() {
     const body = $('fileBody');
     const { folders, items } = state;
@@ -183,7 +191,7 @@
       const cat = previewCat(f.filename);
       const tr = document.createElement('tr');
       tr.dataset.kind = 'file'; tr.dataset.id = f.id;
-      const thumbCell = isImage(f.filename)
+      const thumbCell = canThumb(f)
         ? '<span class="ftype thumb-wrap" data-thumb="1"><img class="thumb" alt="" loading="lazy"><span class="ftype-fallback" style="background:' + t.color + '">' + svg(t.icon) + '</span></span>'
         : '<span class="ftype" style="background:' + t.color + '">' + svg(t.icon) + '</span>';
       tr.innerHTML =
@@ -204,10 +212,12 @@
         '</div></td>';
       tr.querySelector('.txt').textContent = f.filename;
       tr.querySelector('.hash').textContent = (f.hash || '').slice(0, 12);
-      if (isImage(f.filename)) {
+      if (canThumb(f)) {
         const img = tr.querySelector('img.thumb');
-        img.src = Api.thumbUrl(f.id, 96);
-        img.onerror = () => { const w = tr.querySelector('.thumb-wrap'); if (w) w.classList.add('thumb-failed'); };
+        if (img) {
+          img.src = Api.thumbUrl(f.id, 96);
+          img.onerror = () => { const w = tr.querySelector('.thumb-wrap'); if (w) w.classList.add('thumb-failed'); };
+        }
       }
       const cb = tr.querySelector('.rowcheck');
       cb.onclick = (e) => { e.stopPropagation(); toggleSel('file', f.id, cb.checked); };

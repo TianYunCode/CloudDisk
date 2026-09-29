@@ -96,10 +96,12 @@ Query：
   "total": 42,
   "items": [
     { "id": 1, "filename": "a.txt", "hash": "<sha256>", "size": 22,
-      "createdAt": "...", "lastUpdate": "..." } ]
+      "createdAt": "...", "lastUpdate": "...", "tagIds": [3],
+      "hasThumb": false } ]
 }
 ```
 `breadcrumb` 为从根到当前目录的祖先链（不含根）。
+`hasThumb` 为该文件**能否生成缩略图**的权威结论（后端 `is_thumbnailable()`，支持 png/jpg/jpeg/gif/bmp/tga/psd/ppm/pgm）。前端应据此决定是否请求 `/api/file/thumb`；注意它与「浏览器能否把该文件当图片预览」不是一回事——webp/svg/ico 可预览但**不能**生成缩略图，若前端自行按扩展名猜测会白发请求并收到 404。
 
 ### GET `/api/file/download` 🔒 — 下载（按 id）
 Query：`id`（必填，文件 id）。返回文件流，带 `Content-Disposition: attachment`。
