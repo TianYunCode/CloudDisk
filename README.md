@@ -187,7 +187,7 @@ E2E_SPACING=5 bash tests/run_all.sh   # Chromium 连续启动偶发抖动时, �
 也可分层单独运行：
 
 ```bash
-./bin/unit_tests                   # 92 项纯逻辑单元测试（SqlUtil/Totp/FileType/RateLimiter/JsonUtil/AuditAction/FormatUtil/BlobStore/CryptoUtil，无需服务）
+./bin/unit_tests                   # 99 项纯逻辑单元测试（SqlUtil/Totp/FileType/RateLimiter/JsonUtil/AuditAction/FormatUtil/BlobStore/CryptoUtil，无需服务）
 bash tests/integration.sh          # 173 项 API/边界/安全集成测试（含令牌/WebDAV/指标/收藏/搜索/版本/统计/标签/活动）
 ```
 

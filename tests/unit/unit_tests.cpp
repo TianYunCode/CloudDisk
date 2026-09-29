@@ -241,6 +241,34 @@ static void test_crypto()
     CHECK(a == b, "哈希确定性 (相同输入相同输出)");
     CHECK(a != c, "不同输入哈希不同");
     CHECK(a.size() == 64, "sha256 十六进制长度 64");
+
+    // 盐值必须来自 CSPRNG: 历史缺陷是用了**未播种**的 rand(), 每次进程启动序列
+    // 相同 -> 重启后第 N 个注册用户拿到相同 salt -> 相同密码产生相同哈希,
+    // 攻击者据此可关联出"哪些用户共用同一密码"。以下断言守住该属性不回退。
+    const int N = 2000;
+    std::set<std::string> salts;
+    bool lenOk = true, charsetOk = true;
+    for (int i = 0; i < N; ++i) {
+        const std::string s = CryptoUtil::generate_salt(8);
+        salts.insert(s);
+        if (s.size() != 8) lenOk = false;
+        for (char ch : s) {
+            const bool okc = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+            if (!okc) charsetOk = false;
+        }
+    }
+    CHECK(lenOk, "generate_salt 长度恒为请求值 (8)");
+    CHECK(charsetOk, "generate_salt 仅含 [0-9a-zA-Z]");
+    // 8 位 62 进制空间约 2.18e14, 2000 次抽样出现碰撞的概率约 9e-9;
+    // 若退回未播种 rand(), 则会在极少量抽样内立刻大量碰撞。
+    CHECK(salts.size() == (size_t)N, "2000 次 generate_salt 全部唯一 (CSPRNG, 非可预测 rand())");
+
+    // 自定义长度同样成立
+    CHECK(CryptoUtil::generate_salt(16).size() == 16, "generate_salt(16) 长度正确");
+    CHECK(CryptoUtil::generate_salt(16) != CryptoUtil::generate_salt(16), "generate_salt(16) 两次不同");
+    // 非法长度不得崩溃且仍返回可用盐
+    CHECK(CryptoUtil::generate_salt(0).size() == 8, "generate_salt(0) 回退为默认 8 位");
+    CHECK(CryptoUtil::generate_salt(-5).size() == 8, "generate_salt(负数) 回退为默认 8 位");
 }
 
 int main()

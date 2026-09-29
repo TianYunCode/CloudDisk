@@ -216,15 +216,34 @@ bool mysql_ok(WFMySQLTask* task)
 // ids_from_json / ids_csv: 已抽出到 server/util/JsonUtil.{h,cpp}
 
 // 生成 URL 安全的随机字符串 (加密级随机)。用于分享 token / 提取码。
+// 兜底路径同样不能用 rand(): 未播种的 rand() 每次进程启动序列相同, 会让分享
+// token / 提取码变得可猜测 —— 那等于任何人都能枚举出他人的分享链接。
 string gen_token(int n)
 {
     static const char* alpha = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    std::vector<unsigned char> buf(n);
+    if (n <= 0) return string();
+    const size_t want = static_cast<size_t>(n);
     string out;
-    if (RAND_bytes(buf.data(), n) == 1) {
-        for (int i = 0; i < n; ++i) out += alpha[buf[i] % 62];
-    } else {
-        for (int i = 0; i < n; ++i) out += alpha[rand() % 62];
+    out.reserve(want);
+
+    std::vector<unsigned char> buf(want);
+    if (RAND_bytes(buf.data(), buf.size()) == 1) {
+        // 拒绝采样消除 256 % 62 的取模偏置 (只接受 < 248 = 62*4 的字节)
+        size_t i = 0;
+        while (out.size() < want) {
+            if (i >= buf.size()) {
+                if (RAND_bytes(buf.data(), buf.size()) != 1) break;
+                i = 0;
+            }
+            const unsigned char b = buf[i++];
+            if (b < 248) out += alpha[b % 62];
+        }
+    }
+    if (out.size() < want) {
+        std::random_device rd;
+        std::mt19937_64 gen((static_cast<uint64_t>(rd()) << 32) ^ static_cast<uint64_t>(rd()));
+        std::uniform_int_distribution<int> dist(0, 61);
+        while (out.size() < want) out += alpha[dist(gen)];
     }
     return out;
 }

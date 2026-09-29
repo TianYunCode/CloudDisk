@@ -16,6 +16,7 @@
 #include <functional>
 #include <cstdint>
 #include <cstddef>
+#include <random>
 #include <mutex>
 #include <unordered_map>
 #include <atomic>
