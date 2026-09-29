@@ -85,14 +85,14 @@
   function renderBreadcrumb() {
     const el = $('breadcrumb');
     el.innerHTML = '';
-    const crumbs = [{ id: 0, name: '根目录' }].concat(state.breadcrumb || []);
+    const crumbs = window.CV.Crumbs.buildCrumbs(state.breadcrumb);
     crumbs.forEach((c, i) => {
       const seg = document.createElement('span');
-      seg.className = 'crumb' + (i === crumbs.length - 1 ? ' current' : '');
+      seg.className = 'crumb' + (window.CV.Crumbs.isLast(crumbs, i) ? ' current' : '');
       seg.textContent = c.name;
-      if (i < crumbs.length - 1) seg.onclick = () => navigate(c.id);
+      if (!window.CV.Crumbs.isLast(crumbs, i)) seg.onclick = () => navigate(c.id);
       el.appendChild(seg);
-      if (i < crumbs.length - 1) {
+      if (!window.CV.Crumbs.isLast(crumbs, i)) {
         const sp = document.createElement('span');
         sp.className = 'crumb-sep';
         sp.innerHTML = svg('<path d="m9 18 6-6-6-6"/>');
@@ -415,7 +415,7 @@
           try {
             const r = await Api.versionUpload(f.id, file);
             toast(r && r.changed === false ? '内容未变化' : '已上传新版本', 'ok');
-            loadVer(); loadList(); loadUser();
+            loadVer(); emitChange();
           } catch (e) { toast(e.message || '上传失败', 'err'); }
           $('verFile').value = ''; $('verHint').textContent = '上传会把当前内容存为一个历史版本';
         };
@@ -444,7 +444,7 @@
         box.innerHTML = html;
         box.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => {
           b.disabled = true;
-          try { await Api.versionRestore(f.id, Number(b.dataset.restore)); toast('已恢复到该版本', 'ok'); loadVer(); loadList(); loadUser(); }
+          try { await Api.versionRestore(f.id, Number(b.dataset.restore)); toast('已恢复到该版本', 'ok'); loadVer(); emitChange(); }
           catch (e) { toast(e.message || '恢复失败', 'err'); b.disabled = false; }
         });
       } catch (e) { box.innerHTML = '<div class="empty-cell">加载失败</div>'; }
@@ -496,7 +496,7 @@
           toast('已移入回收站', 'ok');
           clearSelection();
           if (state.page > 0 && state.total - fileIds.length <= state.page * PAGE_SIZE) state.page--;
-          loadList(); loadUser();
+          emitChange();
         } catch (e) { toast(e.message || '删除失败', 'err'); return false; }
       },
     });
@@ -547,7 +547,7 @@
       onOpen: () => renderPicker(),
       onConfirm: async () => {
         if (folderIds.includes(pickParent)) { toast('不能移动到所选文件夹自身', 'warn'); return false; }
-        try { await Api.move(fileIds, folderIds, pickParent); toast('已移动', 'ok'); clearSelection(); loadList(); loadUser(); }
+        try { await Api.move(fileIds, folderIds, pickParent); toast('已移动', 'ok'); clearSelection(); emitChange(); }
         catch (e) { toast(e.message || '移动失败', 'err'); return false; }
       },
     });
@@ -838,7 +838,7 @@
       let tasks;
       try { tasks = (await Api.offlineList()).tasks; } catch { clearInterval(timer); return; }
       const t = tasks.find(x => x.id === id);
-      if (t && t.status === 1) { clearInterval(timer); toast('离线下载完成: ' + t.filename, 'ok'); if (state.view === 'files') { loadList(); loadUser(); } }
+      if (t && t.status === 1) { clearInterval(timer); toast('离线下载完成: ' + t.filename, 'ok'); if (state.view === 'files') { emitChange(); } }
       else if (t && t.status === 2) { clearInterval(timer); toast('离线下载失败: ' + (t.message || t.filename), 'err'); }
       if (tries > 150) clearInterval(timer);
     }, 2000);
@@ -966,7 +966,7 @@
     const parentId = state.parentId;      // 锁定上传目标目录
     for (const f of files) await uploadOne(f, parentId);
     state.page = 0;
-    loadList(); loadUser();
+    emitChange();
   }
 
   // 文件夹上传: 依据 webkitRelativePath 递归建目录后逐个上传
@@ -990,7 +990,7 @@
       await uploadOne(f, pid);
     }
     state.page = 0;
-    loadList(); loadUser();
+    emitChange();
     toast('文件夹上传完成', 'ok');
   }
 
@@ -1559,6 +1559,12 @@
     root.onclick = (e) => { if (e.target === root) close(); };
     document.addEventListener('keydown', onKey);
   }
+
+  // ---------------- 数据变更事件 (Observer/Mediator) ----------------
+  // 视图/控制器 订阅 Bus; 各操作只需 emit('data:changed') 即触发相关视图刷新,
+  // 解耦"谁在刷新"与"什么时候刷新"。详见 core/bus.js。
+  window.CV.Bus.on('data:changed', () => { loadList(); loadUser(); });
+  const emitChange = () => window.CV.Bus.emit('data:changed');
 
   // ---------------- 启动 ----------------
   loadUser();
