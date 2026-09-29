@@ -55,6 +55,7 @@ using namespace AmqpClient;
 
 // 共享支撑层: 运行期配置 + 通用工具 (定义见 GatewaySupport.cpp)
 #include "GatewaySupport.h"
+#include "FormatUtil.h"   // 配额提示的人类可读字节格式化 (与前端 humanSize 一致)
 
 // ----- 分享: 公开链接 / 提取码 / 过期 / 下载限次 / 转存 --------------------------
 namespace {
@@ -380,7 +381,9 @@ void CloudiskServer::register_share_module()
                         push_mysql(series_of(t), usage, [resp, me, targetId, fname, hash, size](WFMySQLTask* tu) {
                             long long used = 0, quota = g_user_quota;
                             if (mysql_ok(tu)) { MySQLResultCursor cu{ tu->get_resp() }; std::vector<MySQLCell> ru; if (cu.fetch_row(ru)) { quota = cell_ll(ru[0]); used = (long long)ru[1].as_ulonglong(); } }
-                            if (used + size > quota) { api::fail(resp, 413, 413, "存储空间不足"); return; }
+                            if (used + size > quota) {api::fail(resp, 413, 413, "存储空间不足: 剩余 "
+     + fmtutil::human_size(quota > used ? quota - used : 0)
+     + ", 本次需 " + fmtutil::human_size(size)); return; }
                             string ins = "INSERT INTO tbl_file (uid, parent_id, filename, hashcode, size) VALUES ("
                                 + std::to_string(me) + ", " + std::to_string(targetId) + ", " + SqlUtil::quote(*fname) + ", "
                                 + SqlUtil::quote(*hash) + ", " + std::to_string(size) + ")";
@@ -432,7 +435,9 @@ void CloudiskServer::register_share_module()
                             push_mysql(series_of(tfl), usage, [resp, me, targetId, targetPath, folders, fnames, files, rootOldId, total](WFMySQLTask* tu) {
                                 long long used = 0, quota = g_user_quota;
                                 if (mysql_ok(tu)) { MySQLResultCursor cu{ tu->get_resp() }; std::vector<MySQLCell> ru; if (cu.fetch_row(ru)) { quota = cell_ll(ru[0]); used = (long long)ru[1].as_ulonglong(); } }
-                                if (used + total > quota) { api::fail(resp, 413, 413, "存储空间不足"); return; }
+                                if (used + total > quota) {api::fail(resp, 413, 413, "存储空间不足: 剩余 "
+     + fmtutil::human_size(quota > used ? quota - used : 0)
+     + ", 本次需 " + fmtutil::human_size(total)); return; }
 
                                 auto idMap   = std::make_shared<std::map<long long,long long>>(); // old->new folder id
                                 auto pathMap = std::make_shared<std::map<long long,string>>();     // old->new folder path

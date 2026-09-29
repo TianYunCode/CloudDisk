@@ -11,6 +11,21 @@
   const QUOTA_FALLBACK = 1073741824; // 后端未返回配额时的兜底: 1 GB
   const PAGE_SIZE = 12;
 
+  // 会话失效时的统一处理。
+  // 原来是直接 Store.clear() + location.href = '/', 一声不响地把用户踢回登录页 ——
+  // 正在进行的整个文件夹上传会被静默丢弃, 用户只看到页面突然回到登录界面,
+  // 完全不知道发生了什么、也不知道进度还能不能续传。
+  // 现在先明确告知, 留出时间让用户看清, 再跳转。
+  let sessionEnding = false;
+  function sessionExpired(action) {
+    if (sessionEnding) return;
+    sessionEnding = true;
+    try {
+      toast('登录已过期' + (action ? ', ' + action + '已中断' : '') + ', 请重新登录', 'err');
+    } catch (e) { /* toast 不可用时也不能卡住跳转 */ }
+    setTimeout(() => { Store.clear(); location.href = '/'; }, 1200);
+  }
+
   const state = {
     view: 'files',           // 'files' | 'trash'
     parentId: 0,             // 当前文件夹
@@ -905,7 +920,7 @@
       xhr.onload = () => {
         let d = null; try { d = JSON.parse(xhr.responseText); } catch {}
         if (xhr.status >= 200 && xhr.status < 300 && d && d.code === 0) resolve(d.data);
-        else if (xhr.status === 401) { Store.clear(); location.href = '/'; }
+        else if (xhr.status === 401) { sessionExpired('上传'); reject({ message: '登录已过期' }); }
         else reject(d || { message: '上传失败 (' + xhr.status + ')' });
       };
       xhr.onerror = () => reject({ message: '网络错误' });
@@ -943,7 +958,7 @@
           body: blob,
         });
       } catch (e) { throw { message: '网络错误' }; }
-      if (res.status === 401) { Store.clear(); location.href = '/'; return; }
+      if (res.status === 401) { sessionExpired('上传'); throw { message: '登录已过期' }; }
       if (!res.ok) throw { message: '分片 ' + i + ' 上传失败' };
       uploadedBytes += blob.size; prog();
     }
@@ -955,6 +970,14 @@
   async function uploadOne(file, parentId) {
     const el = addUploadItem(file.webkitRelativePath || file.name);
     try {
+      // 上限预检: 必须在算哈希之前。大文件哈希要按 4MiB 分片流式读完整文件,
+      // 数 GB 文件可能耗时数分钟; 若不做预检, 用户要白等这么久才看到 413。
+      // 上限由服务端经 /api/user/info 下发 (来自 config.json / MAX_FILE_SIZE),
+      // 前端不能自行硬编码 —— 那正是两端漂移的根源。
+      const lim = Number(state.me && state.me.maxFileSize) || 0;
+      if (lim > 0 && file.size > lim) {
+        throw { message: '文件超过大小上限 (' + humanSize(file.size) + ' > ' + humanSize(lim) + ')' };
+      }
       el.querySelector('.pct').textContent = '校验…';
       const hash = await window.hashFile(file);
       if (file.size > CHUNK_THRESHOLD) {

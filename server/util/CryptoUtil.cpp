@@ -150,6 +150,43 @@ bool CryptoUtil::verify_token(const string& token, User& user)
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Sha256Stream: 增量式 SHA-256 (见头文件说明: 大文件必须边读边算)
+// ---------------------------------------------------------------------------
+Sha256Stream::Sha256Stream() : m_ctx(EVP_MD_CTX_new()), m_done(false)
+{
+    if (m_ctx) EVP_DigestInit_ex(m_ctx, EVP_sha256(), nullptr);
+}
+
+Sha256Stream::~Sha256Stream()
+{
+    if (m_ctx) EVP_MD_CTX_free(m_ctx);
+}
+
+void Sha256Stream::update(const void* data, size_t n)
+{
+    if (!m_ctx || m_done || n == 0) return;
+    EVP_DigestUpdate(m_ctx, data, n);
+}
+
+string Sha256Stream::final_hex()
+{
+    if (!m_ctx || m_done) return string();
+    m_done = true;
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int len = 0;
+    EVP_DigestFinal_ex(m_ctx, hash, &len);
+
+    static const char* HEX = "0123456789abcdef";
+    string out;
+    out.reserve(len * 2);
+    for (unsigned i = 0; i < len; ++i) {
+        out += HEX[(hash[i] >> 4) & 0x0F];
+        out += HEX[hash[i] & 0x0F];
+    }
+    return out;
+}
+
 std::string CryptoUtil::generate_hashcode(const char* data, size_t n, const EVP_MD* md)
 {
     EVP_MD_CTX* context = EVP_MD_CTX_new();     // 创建 EVP 上下文

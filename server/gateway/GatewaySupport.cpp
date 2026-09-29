@@ -20,8 +20,12 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <cstdio>
+#include <cerrno>
+#include <cstring>
 #include <cctype>
 #include <ctime>
+#include <set>
 
 #include <SimpleAmqpClient/SimpleAmqpClient.h>
 
@@ -153,6 +157,215 @@ bool write_blob_if_absent(const string& hash, const string& content)
 string blob_path(const string& hash)
 {
     return blob_store().path_of(hash);
+}
+
+// 与 blob 同目录的临时文件路径。同目录是硬要求: 只有同一文件系统上的 rename()
+// 才是原子操作, 跨设备 rename 会返回 EXDEV 并退化成"复制 + 删除"(非原子且更慢)。
+string blob_tmp_path(const string& tag)
+{
+    string dest = blob_path("x");                 // 只为取出 blob 根目录
+    size_t slash = dest.find_last_of('/');
+    string dir = (slash == string::npos) ? string(".") : dest.substr(0, slash);
+    return dir + "/.tmp-" + tag + "-" + std::to_string((long long)time(nullptr))
+         + "-" + std::to_string((long long)getpid());
+}
+
+bool merge_chunks_streaming(const string& dir, int totalChunks, const string& dest,
+                            string& outHash, long long& outSize, string& err)
+{
+    outHash.clear();
+    outSize = 0;
+    err.clear();
+    if (totalChunks <= 0) { err = "分片数非法"; return false; }
+
+    int out = open(dest.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (out < 0) { err = "无法创建临时文件: " + string(strerror(errno)); return false; }
+
+    // 每次只持有一块 (上限 4 MiB), 内存占用与文件总大小无关。
+    // 注意: 不信任分片的实际大小 —— 客户端可以上传任意大的 .part,
+    // 因此按固定块循环读取, 而不是一次性 read_file_all 整个分片。
+    static const size_t BLOCK = 4u * 1024 * 1024;
+    std::vector<char> buf(BLOCK);
+    Sha256Stream hasher;
+    long long total = 0;
+    bool ok = true;
+
+    for (int i = 0; i < totalChunks && ok; ++i) {
+        string part = dir + "/" + std::to_string(i) + ".part";
+        int in = open(part.c_str(), O_RDONLY);
+        if (in < 0) { err = "分片缺失: " + std::to_string(i); ok = false; break; }
+        for (;;) {
+            ssize_t r = read(in, buf.data(), BLOCK);
+            if (r < 0) {
+                if (errno == EINTR) continue;
+                err = "读取分片 " + std::to_string(i) + " 失败: " + string(strerror(errno));
+                ok = false; break;
+            }
+            if (r == 0) break;                       // 该分片读完
+            // 全量写出 (write 可能短写)
+            ssize_t off = 0;
+            while (off < r) {
+                ssize_t w = write(out, buf.data() + off, (size_t)(r - off));
+                if (w <= 0) {
+                    if (w < 0 && errno == EINTR) continue;
+                    err = "写入合并文件失败: " + string(strerror(errno));
+                    ok = false; break;
+                }
+                off += w;
+            }
+            if (!ok) break;
+            hasher.update(buf.data(), (size_t)r);
+            total += r;
+        }
+        close(in);
+    }
+
+    // 确保数据真正落盘, 之后 rename 才对读者可见
+    if (ok && fsync(out) != 0) { err = "同步合并文件失败: " + string(strerror(errno)); ok = false; }
+    close(out);
+
+    if (!ok) { remove(dest.c_str()); return false; }
+    outHash = hasher.final_hex();
+    outSize = total;
+    return true;
+}
+
+bool adopt_blob_file(const string& hash, const string& src, string& err)
+{
+    err.clear();
+    const string dest = blob_path(hash);
+    if (access(dest.c_str(), F_OK) == 0) {          // 已存在 -> 去重命中
+        remove(src.c_str());
+        return false;
+    }
+    if (rename(src.c_str(), dest.c_str()) == 0) return true;
+
+    // rename 失败 (典型为 EXDEV 跨设备, 或 blob 目录不存在): 退化为流式复制,
+    // 仍然不把文件读进内存。
+    int in = open(src.c_str(), O_RDONLY);
+    if (in < 0) { err = "打开临时文件失败: " + string(strerror(errno)); return false; }
+    int out = open(dest.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (out < 0) {
+        err = "创建 blob 失败: " + string(strerror(errno));
+        close(in); remove(src.c_str()); return false;
+    }
+    static const size_t BLOCK = 4u * 1024 * 1024;
+    std::vector<char> buf(BLOCK);
+    bool ok = true;
+    for (;;) {
+        ssize_t r = read(in, buf.data(), BLOCK);
+        if (r < 0) { if (errno == EINTR) continue; err = "复制读取失败: " + string(strerror(errno)); ok = false; break; }
+        if (r == 0) break;
+        ssize_t off = 0;
+        while (off < r) {
+            ssize_t w = write(out, buf.data() + off, (size_t)(r - off));
+            if (w <= 0) { if (w < 0 && errno == EINTR) continue; err = "复制写入失败: " + string(strerror(errno)); ok = false; break; }
+            off += w;
+        }
+        if (!ok) break;
+    }
+    close(in); close(out);
+    remove(src.c_str());
+    if (!ok) { remove(dest.c_str()); return false; }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 滞留上传会话回收 (GC)
+// ---------------------------------------------------------------------------
+static int g_upload_ttl_hours = 24;
+
+// 清扫"有目录、无会话"的孤儿分片目录。
+// 只按 tbl_upload 的 TTL 清是不够的: 一旦会话行被删 (人工清理、异常中断后的
+// 补偿删除) 而目录还在, 就再没有任何路径能发现它 —— 实测就留了一个这样的目录。
+// 做法: 一次取出全部在册 upload_id 作为集合, 再对照目录列表, 集合外且足够旧的即删。
+static void purge_orphan_upload_dirs()
+{
+    const int ttl = g_upload_ttl_hours;
+    WFMySQLTask* t = WFTaskFactory::create_mysql_task(g_mysql_url, 1, [ttl](WFMySQLTask* task) {
+        if (task->get_state() != WFT_STATE_SUCCESS) return;
+        std::set<string> known;
+        try {
+            MySQLResultCursor cur{ task->get_resp() };
+            std::vector<MySQLCell> row;
+            while (cur.fetch_row(row)) { if (!row.empty()) known.insert(row[0].as_string()); }
+        } catch (...) { return; }
+
+        DIR* dp = opendir(g_upload_dir.c_str());
+        if (!dp) return;
+        const time_t cutoff = time(nullptr) - (time_t)ttl * 3600;
+        int removed = 0;
+        struct dirent* ent;
+        while ((ent = readdir(dp)) != nullptr) {
+            string name = ent->d_name;
+            if (name == "." || name == "..") continue;
+            if (known.count(name)) continue;              // 在册会话, 交给 TTL 逻辑处理
+            string full = g_upload_dir + "/" + name;
+            struct stat st;
+            if (stat(full.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+            // 仅删足够旧的: 避免与"刚 mkdir 还没插入会话行"的并发上传抢跑。
+            if (st.st_mtime > cutoff) continue;
+            remove_upload_dir(full);
+            ++removed;
+        }
+        closedir(dp);
+        if (removed > 0) LOG_INFO("孤儿分片目录清扫: 删除 " << removed << " 个无会话归属的目录");
+    });
+    t->get_req()->set_query("SELECT upload_id FROM tbl_upload");
+    t->start();
+}
+
+void purge_stale_uploads()
+{
+    purge_orphan_upload_dirs();               // 先清无归属的目录, 再清超时会话
+    const int ttl = g_upload_ttl_hours;
+    string q = "SELECT upload_id FROM tbl_upload WHERE status=0 AND created_at < (NOW() - INTERVAL "
+             + std::to_string(ttl) + " HOUR)";
+    WFMySQLTask* t = WFTaskFactory::create_mysql_task(g_mysql_url, 1, [ttl](WFMySQLTask* task) {
+        if (task->get_state() != WFT_STATE_SUCCESS) {
+            LOG_WARN("滞留上传清扫: 查询失败, 本轮跳过");
+            return;
+        }
+        std::vector<string> ids;
+        try {
+            MySQLResultCursor cur{ task->get_resp() };
+            std::vector<MySQLCell> row;
+            while (cur.fetch_row(row)) { if (!row.empty()) ids.push_back(row[0].as_string()); }
+        } catch (...) { }
+        if (ids.empty()) return;
+
+        // 先删分片目录, 再删记录: 顺序反了会在崩溃时留下永远查不到的孤儿目录。
+        for (const string& id : ids) remove_upload_dir(g_upload_dir + "/" + id);
+        string del = "DELETE FROM tbl_upload WHERE status=0 AND created_at < (NOW() - INTERVAL "
+                   + std::to_string(ttl) + " HOUR)";
+        WFMySQLTask* d = WFTaskFactory::create_mysql_task(g_mysql_url, 1, [n = ids.size(), ttl](WFMySQLTask*) {
+            LOG_INFO("滞留上传清扫: 回收 " << n << " 个超过 " << ttl << " 小时的未完成会话及其分片目录");
+        });
+        d->get_req()->set_query(del);
+        d->start();
+    });
+    t->get_req()->set_query(q);
+    t->start();
+}
+
+// 周期回调不能带捕获, 因此用一对普通函数互相调用形成自续期循环。
+static void schedule_upload_gc();
+static void upload_gc_tick(WFTimerTask* t)
+{
+    // 定时器失败 (例如进程正在退出) 就不再续期, 避免空转。
+    if (t->get_state() == WFT_STATE_SUCCESS) { purge_stale_uploads(); schedule_upload_gc(); }
+}
+static void schedule_upload_gc()
+{
+    WFTaskFactory::create_timer_task(3600, 0, upload_gc_tick)->start();   // 每小时一次
+}
+
+void start_upload_gc(int ttlHours)
+{
+    g_upload_ttl_hours = ttlHours > 0 ? ttlHours : 24;
+    LOG_INFO("分片上传会话回收已启用: TTL " << g_upload_ttl_hours << " 小时, 每小时清扫一次");
+    purge_stale_uploads();       // 启动即清一次, 回收历史遗留
+    schedule_upload_gc();
 }
 
 // 异步备份: 新 blob 落地后交由备份后端处理 (失败不影响主流程)。

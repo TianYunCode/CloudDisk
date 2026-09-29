@@ -107,6 +107,10 @@ void CloudiskServer::register_modules()
     register_stats_module();
     register_tag_module();
     register_activity_module();
+
+    // 分片上传会话回收: 中断的上传会永久留下 status=0 的记录与几十 MB 分片,
+    // 没有任何其他路径会清理它们, 因此必须在启动时就扫一遍并周期执行。
+    start_upload_gc(c.upload_ttl_hours());
 }
 
 // ----- 静态资源与页面 ----------------------------------------------------------

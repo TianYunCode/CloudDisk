@@ -89,6 +89,35 @@ std::set<int> list_uploaded_chunks(const std::string& dir);
 void remove_upload_dir(const std::string& dir);
 bool write_blob_if_absent(const std::string& hash, const std::string& content);
 std::string blob_path(const std::string& hash);   // = blob_store().path_of(hash)
+
+// ----- 大文件流式合并 (不把整文件读进内存) -----------------------------------
+// 背景: 分片合并原先把所有 .part 拼进一个 std::string 再整体哈希, 峰值内存 =
+// 文件大小。单文件上限提到 10 GiB 后, 一次合并就要 10 GiB 内存, 会 OOM 拖垮整个
+// 服务进程 (影响所有用户)。以下两个函数改为"边读边写边算": 每次只持有一个分片。
+
+// 与 blob 同目录的临时文件路径 (同目录才能保证后续 rename 是原子操作)。
+std::string blob_tmp_path(const std::string& tag);
+
+// 流式合并 dir 下的 0.part .. (totalChunks-1).part 到 dest, 同时增量计算 SHA-256。
+// 成功: 返回 true, outHash = 64 位十六进制摘要, outSize = 实际合并字节数。
+// 失败: 返回 false, err 为原因, 并已删除 dest 残留。
+bool merge_chunks_streaming(const std::string& dir, int totalChunks,
+                            const std::string& dest,
+                            std::string& outHash, long long& outSize,
+                            std::string& err);
+
+// 把已写好的 src 文件原子纳入 blob 存储 (rename)。
+// 若同哈希 blob 已存在: 删除 src 并返回 false (去重命中); 新纳入返回 true。
+bool adopt_blob_file(const std::string& hash, const std::string& src, std::string& err);
+
+// ----- 滞留上传会话回收 (GC) --------------------------------------------------
+// 中断的分片上传会永久留下两样垃圾: tbl_upload 里 status=0 的行, 以及
+// storage/uploads/<uploadId>/ 下的全部分片。二者都不会被任何路径清理 ——
+// 实测已积累 137 MiB 孤儿分片 (含一个目标目录早已被删进回收站的会话)。
+// TTL 到期即回收; 仍在有效期内的会话保持可续传。
+void purge_stale_uploads();               // 立即清扫一次 (异步, fire-and-forget)
+void start_upload_gc(int ttlHours);       // 启动时清扫一次, 之后每小时清扫
+
 void publish_oss_backup(const std::string& hash);
 bool discover_userservice(std::string& ip, unsigned short& port);
 

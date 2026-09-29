@@ -73,6 +73,69 @@ check(jsBad.length === 0,
   '前端与 Node 权威实现对全部 ' + LENGTHS.length + ' 种长度一致 (含 55/56/63/64/65/119/120/127/128 填充边界)',
   jsBad.slice(0, 5).join('\n      '));
 
+// ---- 2b. 增量式实现: 任意分片切法都必须与一次性 / Node 权威完全一致 ----
+// 大文件走的是 createSha256() 流式路径 (hashFile 按 4MiB 分片喂入), 因此
+// "分片边界处理" 与 "填充边界" 同等关键: 残留字节缓存 tailLen 在 55/56/63/64
+// 处的行为一旦出错, 大文件哈希就会与后端不一致 -> 秒传/去重命中错误内容。
+const createSha256 = Sha256.createSha256;
+check(typeof createSha256 === 'function', '前端 createSha256 (增量式) 可加载');
+
+const incBad = [];
+// 每种长度都用多种切法喂入: 逐字节 / 3 字节 / 整块 64 / 65 (跨块) / 大分片
+const SPLITS = [1, 3, 7, 64, 65, 128, 4096];
+for (const n of LENGTHS) {
+  const buf = pattern(n);
+  const exp = nodeSha(buf);
+  const oneShot = jsSha(new Uint8Array(buf));
+  if (oneShot !== exp) { incBad.push('len=' + n + ' 一次性实现不符'); continue; }
+  for (const step of SPLITS) {
+    const h = createSha256();
+    for (let off = 0; off < n; off += step) {
+      h.update(new Uint8Array(buf.subarray(off, Math.min(n, off + step))));
+    }
+    const got = h.hex();
+    if (got !== exp) {
+      incBad.push('len=' + n + ' step=' + step + ': 增量=' + got.slice(0, 12) + '… exp=' + exp.slice(0, 12) + '…');
+    }
+  }
+}
+check(incBad.length === 0,
+  '增量式 createSha256 对 ' + LENGTHS.length + ' 种长度 × ' + SPLITS.length + ' 种分片切法全部与 Node 权威一致 ('
+    + (LENGTHS.length * SPLITS.length) + ' 组)',
+  incBad.slice(0, 6).join('\n      '));
+
+// 空 update 不得影响结果 (hashFile 在 size 恰为分片整数倍时会多走一次空循环)
+{
+  const h = createSha256();
+  h.update(new Uint8Array(0));
+  h.update(new Uint8Array(pattern(100)));
+  h.update(new Uint8Array(0));
+  check(h.hex() === nodeSha(pattern(100)), '空 update 不影响增量结果', h.hex().slice(0, 16));
+}
+// 单块残留恰好落在填充边界 (tailLen = 55/56/63) 的切法
+{
+  const bb = [];
+  for (const n of [55, 56, 63, 64, 119, 120]) {
+    const buf = pattern(n);
+    // 先喂 n-1 字节, 再喂最后 1 字节 -> 强制 tailLen 停在 54/55/62/63/118/119
+    const h = createSha256();
+    h.update(new Uint8Array(buf.subarray(0, n - 1)));
+    h.update(new Uint8Array(buf.subarray(n - 1)));
+    if (h.hex() !== nodeSha(buf)) bb.push('n=' + n);
+  }
+  check(bb.length === 0, '增量式在 tailLen 处于 54/55/62/63 等填充临界点时仍正确', bb.join(','));
+}
+// 带非零 byteOffset 的子视图 (DataView 若漏加 byteOffset 会静默算错)
+{
+  const big = new Uint8Array(200);
+  big.set(new Uint8Array(pattern(120)), 50);           // 数据放在 offset 50 处
+  const view = big.subarray(50, 170);
+  const h = createSha256();
+  h.update(view);
+  check(h.hex() === nodeSha(pattern(120)),
+    '增量式正确处理带 byteOffset 的子视图', h.hex().slice(0, 16));
+}
+
 // 输出形态自检
 const sample = jsSha(new Uint8Array(pattern(10)));
 check(/^[0-9a-f]{64}$/.test(sample), '输出为 64 位小写十六进制', sample);

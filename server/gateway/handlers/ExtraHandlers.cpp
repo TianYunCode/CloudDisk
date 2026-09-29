@@ -55,6 +55,7 @@ using namespace AmqpClient;
 
 // 共享支撑层: 运行期配置 + 通用工具 (定义见 GatewaySupport.cpp)
 #include "GatewaySupport.h"
+#include "FormatUtil.h"   // 配额提示的人类可读字节格式化 (与前端 humanSize 一致)
 
 // =============================================================================
 // 收藏夹: 文件 / 文件夹加星, 独立视图列出
@@ -247,7 +248,9 @@ void CloudiskServer::register_version_module()
                     if (c2.fetch_row(r2)) { quota = cell_ll(r2[0]); used = (long long)r2[1].as_ulonglong(); } }
                 long long newSize = (long long)content->size();
                 long long delta = newSize - oldSize;
-                if (delta > 0 && used + delta > quota) { api::fail(resp, 413, 413, "存储空间不足"); return; }
+                if (delta > 0 && used + delta > quota) {api::fail(resp, 413, 413, "存储空间不足: 剩余 "
+     + fmtutil::human_size(quota > used ? quota - used : 0)
+     + ", 本次需 " + fmtutil::human_size(delta)); return; }
                 string newHash = CryptoUtil::generate_hashcode(content->c_str(), content->size());
                 if (newHash == *oldHash) { api::ok(resp, {{"changed", false}}, "内容未变化, 未创建新版本"); return; }
                 bool isNew = write_blob_if_absent(newHash, *content);
@@ -327,7 +330,9 @@ void CloudiskServer::register_version_module()
                 if (mysql_ok(tq)) { MySQLResultCursor c2{ tq->get_resp() }; std::vector<MySQLCell> r2;
                     if (c2.fetch_row(r2)) { quota = cell_ll(r2[0]); used = (long long)r2[1].as_ulonglong(); } }
                 long long delta = tgtSize - curSize;
-                if (delta > 0 && used + delta > quota) { api::fail(resp, 413, 413, "存储空间不足"); return; }
+                if (delta > 0 && used + delta > quota) {api::fail(resp, 413, 413, "存储空间不足: 剩余 "
+     + fmtutil::human_size(quota > used ? quota - used : 0)
+     + ", 本次需 " + fmtutil::human_size(delta)); return; }
                 if (*curHash == *tgtHash) { api::ok(resp, {{"changed", false}}, "已是该版本内容"); return; }
                 string up =
                     "INSERT INTO tbl_file_version (file_id, uid, hashcode, size) VALUES ("

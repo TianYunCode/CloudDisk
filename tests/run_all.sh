@@ -4,7 +4,7 @@
 #
 #   1. C++ 单元测试        bin/unit_tests            (无需任何服务)
 #   2. 前端纯逻辑 + 契约    tests/e2e/*_validate.mjs  (无需任何服务)
-#   3. 集成测试            tests/integration.sh      (需 server + UserService + MySQL)
+#   3. 集成测试            tests/integration.sh + tests/large_upload.mjs  (需 server + UserService + MySQL)
 #   4. 浏览器 e2e          tests/e2e/e2e*.mjs        (需 server; Playwright/Chromium)
 #
 # 用法:
@@ -79,6 +79,13 @@ else
     out="$(bash tests/integration.sh 2>&1)"; rc=$?
     echo "$out" | tail -3
     if [ $rc -eq 0 ] && ! echo "$out" | grep -qE '[1-9][0-9]* 失败'; then ok "集成测试"; else bad "集成测试 (rc=$rc)"; fi
+
+    # 大文件上传链路: 流式合并的内存不变量 + 跨目录断点续传 + 超限早拒。
+    # 需要活的服务, 且会真实写入/删除数据, 因此归入第 3 层而非静态契约层。
+    # BIG_SIZE_MB 可调 (默认 128 MiB, 约 4 秒); 设为 1024 可做 GiB 级验证。
+    out="$(node tests/large_upload.mjs 2>&1)"; rc=$?
+    echo "$out" | tail -3
+    if [ $rc -eq 0 ]; then ok "大文件上传链路"; else bad "大文件上传链路 (rc=$rc)"; echo "$out" | grep '✗' | head -5; fi
   fi
 
   # ---------------------------------------------------------- 4. 浏览器 e2e

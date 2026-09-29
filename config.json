@@ -7,6 +7,7 @@
   "jwt_secret": "change-me-to-a-long-random-secret-please",
   "storage_dir": "storage",
   "log_file": "logs/clouddisk.log",
-  "max_file_size": 104857600,
-  "user_quota": 1073741824
+  "max_file_size": 10737418240,
+  "user_quota": 1099511627776,
+  "upload_ttl_hours": 24
 }

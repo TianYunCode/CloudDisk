@@ -44,9 +44,11 @@ Body：`{ "username": "alice", "password": "secret123" }`
 ### GET `/api/user/info` 🔒 — 当前用户信息与用量
 成功 `data`：
 ```json
-{ "username": "alice", "createdAt": "2026-09-27 10:00:00", "fileCount": 12, "storageUsed": 34567, "quota": 1073741824 }
+{ "username": "alice", "createdAt": "2026-09-27 10:00:00", "fileCount": 12, "storageUsed": 34567, "quota": 1099511627776, "maxFileSize": 10737418240 }
 ```
 `quota` 为该用户的存储配额（字节，由 `user_quota` 配置，后端强制）。
+`maxFileSize` 为单文件大小上限（字节，由 `max_file_size` 配置）。**前端必须在计算哈希之前用它预检**：
+上限只有服务端说了算，客户端自行猜测会与后端漂移，导致用户白等几分钟哈希后才被 413 拒绝。
 
 ---
 
@@ -72,8 +74,12 @@ Body：`{ "filename": "a.txt", "hash": "<sha256>", "size": 22, "parentId": 0 }`
 - 命中（blob 已存在）：`data.instant = true`，直接建立元数据，无需上传文件体。
 - 未命中：`data.instant = false`，客户端需走完整上传。
 - 命中但超出用户配额：返回 `413 存储空间不足`。
+- `size` 超过 `max_file_size`：返回 `413 文件超过大小上限: 上限 X, 本次 Y`（人类可读字节）。
 
 > 客户端上传前先在本地计算文件 SHA-256（浏览器端用 WebCrypto，非安全上下文回退纯 JS 实现），据此实现秒传。
+> **大文件必须走增量哈希**：`hashFile()` 对超过 4 MiB 的文件按 4 MiB 切片流式喂给 `createSha256()`，
+> 并每 8 片让出一次主线程，避免 `file.arrayBuffer()` 把整文件读进浏览器内存、也避免纯 JS 计算长时间冻结 UI
+> （页面经 `http://` 提供时 `crypto.subtle` 不可用，纯 JS 是**唯一**可用路径，实测约 104 MiB/s）。
 
 ### GET `/api/file/list` 🔒 — 列出目录内容（文件夹 + 文件）
 Query：
@@ -257,12 +263,19 @@ Query：`id`、`token`、`size`(长边像素，默认 256，范围 32–512)。�
 ### POST `/api/upload/init` 🔒 — 初始化分片上传会话
 Body：`{ filename, hash(sha256), size, parentId, chunkSize, totalChunks }`
 - 若 `hash` 命中已有 blob → 直接建记录，返回 `{ instant:true, filename, hash, size }`（秒传）。
-- 否则返回 `{ instant:false, uploadId, uploaded:[已收到的分片序号], chunkSize, totalChunks }`；`uploaded` 用于**断点续传**（相同 uid+hash+parentId 的进行中会话会被复用）。
+- 否则返回 `{ instant:false, uploadId, uploaded:[已收到的分片序号], chunkSize, totalChunks, resumed }`；`uploaded` 用于**断点续传**，`resumed` 为已收到的分片数。
+- 复用条件是 `uid + hash + size + chunkSize + totalChunks`，**刻意不含 `parentId`**：文件的内容身份与"最终放进哪个目录"无关。
+  早期把 `parentId` 也纳入匹配，于是用户换个目录（甚至只是删掉旧目录再重建同名目录）就会丢弃全部已传分片、从零重传；
+  换目录时服务端改为把会话 `parent_id` 更新为新目录，`complete` 便落到用户当前选择的位置。
+- 分片几何（`size/chunkSize/totalChunks`）必须匹配，否则复用旧分片会拼出损坏的文件。
 | 状态 | 含义 |
 |---|---|
 | 200 | 成功 |
 | 400 | 参数不合法 |
-| 413 | 存储空间不足（按完整大小预检） |
+| 413 | 存储空间不足（按完整大小预检）/ **`size` 超过 `max_file_size`** |
+
+> 413 在 `init` 与 `instant` 就会返回，客户端**无需上传任何分片**即可得知超限。文案为人类可读字节
+> （如 `文件超过大小上限: 上限 10.0 GB, 本次 11.0 GB`），便于直接展示给用户。
 
 ### POST `/api/upload/chunk?uploadId=&index=` 🔒 — 上传单个分片
 请求体为该分片的**原始二进制**（`application/octet-stream`）。`index` 从 0 计。
@@ -273,12 +286,20 @@ Body：`{ filename, hash(sha256), size, parentId, chunkSize, totalChunks }`
 | 404 | 会话不存在或已完成 |
 
 ### POST `/api/upload/complete` 🔒 — 合并分片
-Body：`{ uploadId }`。服务端顺序拼接全部分片，**校验整文件 sha256** 与声明一致，落 blob（含引用去重 + OSS 备份）并建记录，清理临时分片。
+Body：`{ uploadId }`。服务端**流式**合并：逐片读取 → 追加写入临时文件 → 增量计算 SHA-256，
+峰值内存约 4 MiB 且**与文件大小无关**（上限提到 10 GiB 后，若仍把分片拼进一个 `std::string`，
+单次合并就要 10 GiB 内存，足以 OOM 拖垮整个进程）。合并后校验整文件 sha256 与声明一致，
+再按**真实字节数**复核配额（客户端声明的 `size` 不可信），随后原子 `rename` 落 blob
+（含引用去重 + OSS 备份）并建记录，清理临时分片。
 | 状态 | 含义 |
 |---|---|
 | 200 | `{ filename, hash, size, instant }` |
 | 400 | 分片缺失 / hash 校验失败 / 参数不合法 |
 | 413 | 存储空间不足 |
+| 500 | 存储写入失败（含具体 errno 说明） |
+
+> 未完成会话由后台 GC 按 `upload_ttl_hours`（默认 24 小时）回收：删除超时的 `tbl_upload` 行与其分片目录，
+> 并额外清扫"有目录、无会话归属"的孤儿目录（仅当目录 mtime 也已超过 TTL，避免与并发上传抢跑）。
 
 ### POST `/api/folder/ensure` 🔒 — 递归确保多级目录
 Body：`{ parentId, path:"a/b/c" }`。逐段“存在即复用、缺失则创建”，返回叶子目录 `{ id, path }`。用于**文件夹上传**。幂等；层级上限 64。

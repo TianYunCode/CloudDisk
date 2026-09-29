@@ -190,6 +190,10 @@ void CloudiskServer::register_userinfo_module()
                 {"fileCount",   cnt},
                 {"storageUsed", total},
                 {"quota",       quota},
+                // 单文件大小上限: 下发给前端, 使其能在**开始哈希之前**就快速拒绝
+                // 超限文件。该值来自服务端 config.json / MAX_FILE_SIZE, 前端无法自行
+                // 推断; 不下发就只能"先花几分钟算完哈希、传完所有分片, 最后被 413 拒掉"。
+                {"maxFileSize", g_max_file_size},
             });
         });
     });

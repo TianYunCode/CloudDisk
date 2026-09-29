@@ -113,6 +113,13 @@ jobs:
       - name: 集成测试
         run: bash tests/integration.sh
 
+      # 大文件链路: 守住"合并期内存与文件大小无关"的流式不变量、跨目录断点续传语义
+      # 与超限早拒。CI 用 32 MiB 样本保持速度; 该测试的内存断言阈值按文件大小比例计算,
+      # 因此小样本同样能判别 —— 旧实现会把整文件拼进内存, 增量必然 >= 文件大小。
+      # 读不到 server 进程 RSS 时该项自动降级为跳过, 不会造成 CI 抖动。
+      - name: 大文件上传链路测试
+        run: BIG_SIZE_MB=32 node tests/large_upload.mjs
+
       - name: 上传日志
         if: always()
         uses: actions/upload-artifact@v4

@@ -49,6 +49,9 @@ public:
     long long max_file_size()  { return (long long)get_int("max_file_size", "MAX_FILE_SIZE", 10LL * 1024 * 1024 * 1024); }
     // 每个用户的存储配额 (字节), 默认 1 TiB
     long long user_quota()     { return (long long)get_int("user_quota", "USER_QUOTA", 1LL  * 1024 * 1024 * 1024 * 1024); }
+    // 未完成分片上传会话的保留时长 (小时); 超时即回收记录与分片目录, 默认 24 小时。
+    // 设为 0 表示关闭回收 (不建议: 中断的上传会永久占用磁盘)。
+    int upload_ttl_hours()     { return get_int("upload_ttl_hours", "UPLOAD_TTL_HOURS", 24); }
 
 private:
     Config() { load(); }

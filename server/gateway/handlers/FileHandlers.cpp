@@ -56,6 +56,7 @@ using namespace AmqpClient;
 // 共享支撑层: 运行期配置 + 通用工具 (定义见 GatewaySupport.cpp)
 #include "GatewaySupport.h"
 #include "FormatUtil.h"   // 配额提示的人类可读字节格式化 (与前端 humanSize 一致)
+#include <cstdio>          // remove(): 流式合并失败时清理临时文件
 
 // ----- 上传 (多文件) -----------------------------------------------------------
 void CloudiskServer::register_fileupload_module()
@@ -145,7 +146,13 @@ void CloudiskServer::register_fileupload_module()
         string hash     = json_str(in, "hash");
         long long size  = in.contains("size") && in["size"].is_number() ? in["size"].get<long long>() : 0;
         long long parentId = in.contains("parentId") && in["parentId"].is_number() ? in["parentId"].get<long long>() : 0;
-        if (filename.empty() || !SqlUtil::valid_hash(hash)) { api::fail(resp, 400, 400, "参数不合法"); return; }
+        if (filename.empty() || !SqlUtil::valid_hash(hash) || size < 0) { api::fail(resp, 400, 400, "参数不合法"); return; }
+        // 早拒: 与 /api/upload/init 保持一致, 避免客户端为超限文件白算哈希再被拒。
+        if (size > g_max_file_size) {
+            api::fail(resp, 413, 413, "文件超过大小上限: 上限 "
+                + fmtutil::human_size(g_max_file_size) + ", 本次 " + fmtutil::human_size(size));
+            return;
+        }
 
         if (!blob_store().exists(hash)) {
             api::ok(resp, {{"instant", false}}, "需要完整上传");
@@ -392,13 +399,21 @@ void CloudiskServer::register_chunk_upload_module()
         if (filename.empty() || !SqlUtil::valid_hash(hash) || size < 0 || chunkSize <= 0 || totalChunks <= 0 || totalChunks > 100000) {
             api::fail(resp, 400, 400, "参数不合法"); return;
         }
+        // 早拒: 单文件超上限必须在 init 就告知, 否则客户端会把整个文件的所有分片
+        // 传完 (可能十几 GB 的带宽与磁盘), 直到 complete 才被拒 —— 白等且白占空间。
+        if (size > g_max_file_size) {
+            api::fail(resp, 413, 413, "文件超过大小上限: 上限 "
+                + fmtutil::human_size(g_max_file_size) + ", 本次 " + fmtutil::human_size(size));
+            return;
+        }
         int uid = user.id;
+        string username = user.username;      // 供上传链路日志使用
         bool blobExists = blob_store().exists(hash);
 
         // 配额校验(以完整大小计)
         string usageSql = usage_quota_sql(uid);
         push_mysql(series, usageSql,
-            [resp, uid, filename, hash, size, parentId, chunkSize, totalChunks, blobExists](WFMySQLTask* task) {
+            [resp, uid, username, filename, hash, size, parentId, chunkSize, totalChunks, blobExists](WFMySQLTask* task) {
             long long used = 0, quota = g_user_quota;
             if (mysql_ok(task)) { MySQLResultCursor cur{ task->get_resp() }; std::vector<MySQLCell> row; if (cur.fetch_row(row)) { quota = cell_ll(row[0]); used = (long long)row[1].as_ulonglong(); } }
             if (used + size > quota) {
@@ -416,16 +431,29 @@ void CloudiskServer::register_chunk_upload_module()
                 });
                 return;
             }
-            // 查找可复用的进行中会话(断点续传), 否则新建
-            string q = "SELECT upload_id FROM tbl_upload WHERE status=0 AND uid=" + std::to_string(uid)
-                     + " AND hashcode=" + SqlUtil::quote(hash) + " AND parent_id=" + std::to_string(parentId)
+            // 查找可复用的进行中会话(断点续传), 否则新建。
+            //
+            // 复用条件**不能**包含 parent_id: 文件的内容身份是 (uid, hashcode),
+            // "这些字节是否已经在服务器上" 与 "最终要放进哪个目录" 完全无关。
+            // 原先把 parent_id 也作为匹配条件, 于是用户只要换个目标目录 —— 甚至只是
+            // 把旧目录删掉再重建一个同名目录 (parent_id 变了) —— 之前已上传的几十 MB
+            // 分片就全部作废, 必须从第 0 片重传。实测某用户 143.8 MiB 的视频两次上传
+            // 分别停在第 13 / 19 片, 第二次完全没有复用第一次的进度。
+            // 反之必须匹配 size / chunk_size / total_chunks: 分片几何不一致时复用旧分片
+            // 会拼出损坏的文件。
+            string q = "SELECT upload_id, parent_id FROM tbl_upload WHERE status=0 AND uid=" + std::to_string(uid)
+                     + " AND hashcode=" + SqlUtil::quote(hash)
+                     + " AND size=" + std::to_string(size)
+                     + " AND chunk_size=" + std::to_string(chunkSize)
+                     + " AND total_chunks=" + std::to_string(totalChunks)
                      + " ORDER BY id DESC LIMIT 1";
-            push_mysql(s, q, [resp, uid, filename, hash, size, parentId, chunkSize, totalChunks](WFMySQLTask* t2) {
+            push_mysql(s, q, [resp, uid, username, filename, hash, size, parentId, chunkSize, totalChunks](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "会话查询失败"); return; }
                 MySQLResultCursor cur{ t2->get_resp() };
                 std::vector<MySQLCell> row;
                 string uploadId;
-                if (cur.fetch_row(row)) uploadId = row[0].as_string();
+                long long oldParent = -1;
+                if (cur.fetch_row(row)) { uploadId = row[0].as_string(); oldParent = cell_ll(row[1]); }
                 SeriesWork* s2 = series_of(t2);
                 auto reply = [resp, chunkSize, totalChunks](const string& uid_) {
                     string dir = g_upload_dir + "/" + uid_;
@@ -433,11 +461,34 @@ void CloudiskServer::register_chunk_upload_module()
                     nlohmann::json arr = nlohmann::json::array();
                     for (int idx : have) arr.push_back(idx);
                     api::ok(resp, {{"instant", false}, {"uploadId", uid_}, {"uploaded", arr},
-                                   {"chunkSize", chunkSize}, {"totalChunks", totalChunks}}, "就绪");
+                                   {"chunkSize", chunkSize}, {"totalChunks", totalChunks},
+                                   {"resumed", (long long)have.size()}}, "就绪");
                 };
-                if (!uploadId.empty()) { mkdir_p(g_upload_dir + "/" + uploadId); reply(uploadId); return; }
+                if (!uploadId.empty()) {
+                    mkdir_p(g_upload_dir + "/" + uploadId);
+                    // 可观测性: 续传命中必须留痕。排查"上传莫名中断"时, 若没有这条记录
+                    // 就无法区分"从未开始""重新开始""成功续传"三种情况。
+                    LOG_INFO("用户 " << username << " 续传 " << filename << " ("
+                             << (size / 1048576) << " MiB, " << totalChunks << " 片), 会话 " << uploadId
+                             << ", 已有 " << list_uploaded_chunks(g_upload_dir + "/" + uploadId).size() << " 片"
+                             << (oldParent != parentId ? ", 目标目录由 " + std::to_string(oldParent)
+                                                         + " 改为 " + std::to_string(parentId) : ""));
+                    // 目标目录变了: 把会话改指到新目录, 这样 complete 落库时用的就是
+                    // 用户当前选择的位置, 同时已传分片得以保留。
+                    if (oldParent != parentId) {
+                        string mv = "UPDATE tbl_upload SET parent_id=" + std::to_string(parentId)
+                                  + " WHERE upload_id=" + SqlUtil::quote(uploadId);
+                        push_mysql(s2, mv, [reply, uploadId](WFMySQLTask*) { reply(uploadId); });
+                        return;
+                    }
+                    reply(uploadId);
+                    return;
+                }
                 string newId = gen_token(16);
                 mkdir_p(g_upload_dir + "/" + newId);
+                LOG_INFO("用户 " << username << " 新建上传会话 " << newId << ": " << filename
+                         << " (" << (size / 1048576) << " MiB, " << totalChunks << " 片, 目录 "
+                         << parentId << ")");
                 string ins = "INSERT INTO tbl_upload (upload_id, uid, hashcode, filename, size, parent_id, chunk_size, total_chunks, status) VALUES ("
                     + SqlUtil::quote(newId) + ", " + std::to_string(uid) + ", " + SqlUtil::quote(hash) + ", "
                     + SqlUtil::quote(filename) + ", " + std::to_string(size) + ", " + std::to_string(parentId) + ", "
@@ -486,9 +537,10 @@ void CloudiskServer::register_chunk_upload_module()
         string uploadId = json_str(in, "uploadId");
         if (uploadId.empty() || !SqlUtil::valid_token(uploadId)) { api::fail(resp, 400, 400, "参数不合法"); return; }
         int uid = user.id;
+        string username = user.username;      // 供上传链路日志使用
         string q = "SELECT hashcode, filename, size, parent_id, total_chunks FROM tbl_upload WHERE status=0 AND uid="
                  + std::to_string(uid) + " AND upload_id=" + SqlUtil::quote(uploadId);
-        push_mysql(series, q, [resp, uid, uploadId](WFMySQLTask* task) {
+        push_mysql(series, q, [resp, uid, username, uploadId](WFMySQLTask* task) {
             if (!mysql_ok(task)) { api::fail(resp, 500, 500, "会话查询失败"); return; }
             MySQLResultCursor cur{ task->get_resp() };
             std::vector<MySQLCell> row;
@@ -500,42 +552,84 @@ void CloudiskServer::register_chunk_upload_module()
             int total = (int)cell_ll(row[4]);
             string dir = g_upload_dir + "/" + uploadId;
 
-            // 顺序拼接所有分片
-            string content;
-            content.reserve(size > 0 ? (size_t)size : 0);
-            for (int i = 0; i < total; ++i) {
-                string part = dir + "/" + std::to_string(i) + ".part";
-                string buf;
-                if (!read_file_all(part, buf)) { api::fail(resp, 400, 400, "分片缺失: " + std::to_string(i)); return; }
-                content += buf;
+            // 早拒: 声明大小超过单文件上限就不必再消耗任何磁盘 I/O
+            if (size > g_max_file_size) {
+                api::fail(resp, 413, 413, "文件超过大小上限: 上限 "
+                    + fmtutil::human_size(g_max_file_size) + ", 本次 " + fmtutil::human_size(size));
+                return;
             }
-            // 校验内容 hash 与声明一致
-            string real = CryptoUtil::generate_hashcode(content.c_str(), content.size());
-            if (real != hash) { api::fail(resp, 400, 400, "文件校验失败(hash 不一致)"); return; }
 
             SeriesWork* s = series_of(task);
             string usageSql = usage_quota_sql(uid);
-            // 用 shared_ptr 移交大内容, 避免多层 lambda 复制
-            auto contentPtr = std::make_shared<string>(std::move(content));
-            push_mysql(s, usageSql, [resp, uid, filename, hash, size, parentId, uploadId, dir, contentPtr](WFMySQLTask* t2) {
+            push_mysql(s, usageSql, [resp, uid, username, filename, hash, size, parentId, uploadId, dir, total](WFMySQLTask* t2) {
                 long long used = 0, quota = g_user_quota;
                 if (mysql_ok(t2)) { MySQLResultCursor c{ t2->get_resp() }; std::vector<MySQLCell> r; if (c.fetch_row(r)) { quota = cell_ll(r[0]); used = (long long)r[1].as_ulonglong(); } }
-                if (used + (long long)contentPtr->size() > quota) {
-                    api::fail(resp, 413, 413, "存储空间不足"); return;
+                // 合并前先按声明大小判一次配额: 避免为注定失败的上传白白读写几十 GB
+                if (used + size > quota) {
+                    LOG_WARN("用户 " << username << " 合并被拒(配额): " << filename
+                             << " 需 " << (size / 1048576) << " MiB, 剩余 "
+                             << ((quota > used ? quota - used : 0) / 1048576) << " MiB");
+                    api::fail(resp, 413, 413, "存储空间不足: 剩余 "
+                        + fmtutil::human_size(quota > used ? quota - used : 0)
+                        + ", 本次需 " + fmtutil::human_size(size));
+                    return;
                 }
-                bool isNew = write_blob_if_absent(hash, *contentPtr);
+
+                // 流式合并: 逐片 read -> 追加 write -> 增量算 SHA-256。
+                // 峰值内存约 4 MiB, 与文件总大小无关。原实现把所有分片拼进一个
+                // std::string 再整体哈希, 峰值内存 = 文件大小; 单文件上限提到
+                // 10 GiB 后, 一次合并就要 10 GiB 内存, 会 OOM 拖垮整个服务进程。
+                string tmp = blob_tmp_path(uploadId);
+                string realHash, merr;
+                long long realSize = 0;
+                const long long t0 = (long long)time(nullptr);
+                if (!merge_chunks_streaming(dir, total, tmp, realHash, realSize, merr)) {
+                    // 可观测性: 合并失败必须留痕 (缺哪一片、什么 errno), 否则线上
+                    // 只能看到客户端一个笼统的"上传失败"。
+                    LOG_ERROR("用户 " << username << " 合并失败: " << filename
+                              << " 会话 " << uploadId << " — " << merr);
+                    api::fail(resp, 400, 400, merr.empty() ? "分片合并失败" : merr);
+                    return;
+                }
+                if (realHash != hash) {
+                    LOG_ERROR("用户 " << username << " 校验失败: " << filename
+                              << " 声明 " << hash.substr(0, 12) << "… 实际 " << realHash.substr(0, 12) << "…");
+                    remove(tmp.c_str());
+                    api::fail(resp, 400, 400, "文件校验失败(hash 不一致)");
+                    return;
+                }
+                // 合并后按真实字节数复核一次配额 (客户端声明的 size 不可信)
+                if (used + realSize > quota) {
+                    remove(tmp.c_str());
+                    api::fail(resp, 413, 413, "存储空间不足: 剩余 "
+                        + fmtutil::human_size(quota > used ? quota - used : 0)
+                        + ", 本次需 " + fmtutil::human_size(realSize));
+                    return;
+                }
+                // 原子纳入 blob 存储 (rename); 同哈希已存在则丢弃临时文件 = 去重命中
+                string aerr;
+                bool isNew = adopt_blob_file(hash, tmp, aerr);
+                if (!aerr.empty()) {
+                    LOG_ERROR("用户 " << username << " 存储写入失败: " << filename << " — " << aerr);
+                    api::fail(resp, 500, 500, "存储写入失败: " + aerr); return;
+                }
                 if (isNew) publish_oss_backup(hash);
-                long long realSize = (long long)contentPtr->size();
                 SeriesWork* s2 = series_of(t2);
                 string ins = "REPLACE INTO tbl_file (uid, parent_id, filename, hashcode, size) VALUES ("
                     + std::to_string(uid) + ", " + std::to_string(parentId) + ", " + SqlUtil::quote(filename) + ", "
                     + SqlUtil::quote(hash) + ", " + std::to_string(realSize) + ")";
-                push_mysql(s2, ins, [resp, uploadId, dir, filename, hash, realSize, isNew](WFMySQLTask* t3) {
+                push_mysql(s2, ins, [resp, username, uploadId, dir, filename, hash, realSize, isNew, t0](WFMySQLTask* t3) {
                     if (!mysql_ok(t3)) { api::fail(resp, 500, 500, "写入元数据失败"); return; }
                     SeriesWork* s3 = series_of(t3);
                     string upd = "UPDATE tbl_upload SET status=1 WHERE upload_id=" + SqlUtil::quote(uploadId);
-                    push_mysql(s3, upd, [resp, dir, filename, hash, realSize, isNew](WFMySQLTask*) {
+                    push_mysql(s3, upd, [resp, username, dir, filename, hash, realSize, isNew, t0](WFMySQLTask*) {
                         remove_upload_dir(dir);
+                        // 成功也要留痕: 有了 大小 + 合并耗时 + 是否去重命中, 才能事后
+                        // 判断"慢"是慢在网络、磁盘还是哈希, 而不是只能靠猜。
+                        LOG_INFO("用户 " << username << " 上传完成: " << filename << " ("
+                                 << (realSize / 1048576) << " MiB), 合并耗时 "
+                                 << ((long long)time(nullptr) - t0) << "s, "
+                                 << (isNew ? "新写入 blob" : "去重命中(秒传)"));
                         api::ok(resp, {{"filename", filename}, {"hash", hash}, {"size", realSize}, {"instant", !isNew}}, "上传成功");
                     });
                 });
@@ -608,7 +702,13 @@ void CloudiskServer::register_offline_module()
                             }
                             long long sz = (long long)cptr->size();
                             if (used + sz > quota) {
-                                string sql = "UPDATE tbl_offline SET status=2, message='存储空间不足' WHERE id=" + std::to_string(offlineId);
+                                // human_size 只产出 "1.5 MB" 这类字符, 不含单引号,
+                                // 直接拼进 SQL 字面量是安全的。
+                                string msg = "存储空间不足: 剩余 "
+                                    + fmtutil::human_size(quota > used ? quota - used : 0)
+                                    + ", 本次需 " + fmtutil::human_size(sz);
+                                string sql = "UPDATE tbl_offline SET status=2, message=" + SqlUtil::quote(msg)
+                                           + " WHERE id=" + std::to_string(offlineId);
                                 WFMySQLTask* et = WFTaskFactory::create_mysql_task(g_mysql_url, 1, [](WFMySQLTask*){});
                                 et->get_req()->set_query(sql); et->start();
                                 return;

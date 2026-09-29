@@ -34,7 +34,10 @@
     if (res.status === 401 && !opts.noAuthRedirect) {
       Store.clear();
       if (!location.pathname.endsWith('index.html') && location.pathname !== '/') {
-        location.href = '/';
+        // 跳转前必须说明原因: 静默 location.href = '/' 会让用户以为页面坏了,
+        // 且正在进行的批量上传被丢弃时也毫无线索。
+        toast('登录已过期，请重新登录', 'err');
+        setTimeout(() => { location.href = '/'; }, 1200);
       }
     }
     let data = null;
