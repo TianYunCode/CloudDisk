@@ -192,11 +192,11 @@ bash tests/integration.sh          # 173 项 API/边界/安全集成测试（含
 ```
 
 `tests/e2e/` 下的 Node 套件（纯逻辑 + 前后端契约守卫 + Playwright 浏览器端到端）：
-`qr_validate`(11) · `format_validate`(12) · `preview_validate`(19) · `validate_validate`(17) · `pager_validate`(13) · `activity_validate`(10) · `bus_validate`(13) · `crumbs_validate`(15) · `audit_contract_validate`(9，审计动作契约) · `route_contract_validate`(9，API 路由 + 文档契约) · `errcode_contract_validate`(8，错误码契约) · `e2e_p1`(11) · `e2e_share`(12) · `e2e_preview`(9) · `e2e_upload`(6) · `e2e_account`(11) · `e2e_devtoken`(7) · `e2e_fav`(5) · `e2e_search`(6) · `e2e_version`(7) · `e2e_stats`(8) · `e2e_tags`(7) · `e2e_activity`(7) · `e2e`(12 综合冒烟)。
+`qr_validate`(11) · `format_validate`(12) · `preview_validate`(19) · `validate_validate`(17) · `pager_validate`(13) · `activity_validate`(10) · `bus_validate`(13) · `crumbs_validate`(15) · `audit_contract_validate`(9，审计动作契约) · `route_contract_validate`(9，API 路由 + 文档契约) · `errcode_contract_validate`(8，错误码契约) · `config_contract_validate`(12，配置与密钥卫生契约) · `e2e_p1`(11) · `e2e_share`(12) · `e2e_preview`(9) · `e2e_upload`(6) · `e2e_account`(11) · `e2e_devtoken`(7) · `e2e_fav`(5) · `e2e_search`(6) · `e2e_version`(7) · `e2e_stats`(8) · `e2e_tags`(7) · `e2e_activity`(7) · `e2e`(12 综合冒烟)。
 
-> **三道前后端契约守卫**（`audit_contract` / `route_contract` / `errcode_contract`）静态比对 C++ 源码与前端 JS，自动防止「后端新增动作/路由/错误码但前端与文档忘了跟进」这类漂移；三者均经过负向验证（人为注入错误即被精确报出）。
+> **四道契约守卫**（`audit_contract` / `route_contract` / `errcode_contract` / `config_contract`）静态比对 C++ 源码、前端 JS、`config.json`、`docker-compose.yml` 与 `docs/API.md`，自动防止「后端新增动作/路由/错误码/配置项，但前端、部署或文档忘了跟进」这类漂移；四者均经过负向验证（人为注入错误即被精确报出）。其中 `config_contract` 还兼作**密钥卫生门禁**：确保仓库内 `config.json` 不会混入真实密钥。
 
-CI（`.github/workflows/ci.yml`）会在推送/PR 时自动起中间件、编译依赖与项目，并依次跑 C++ 单元测试、10 个前端纯逻辑/契约套件与集成测试。
+CI（`.github/workflows/ci.yml`）会在推送/PR 时自动起中间件、编译依赖与项目，并依次跑 C++ 单元测试、11 个前端纯逻辑/契约套件与集成测试。
 
 ---
 
