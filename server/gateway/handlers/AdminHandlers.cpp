@@ -137,7 +137,7 @@ void CloudiskServer::register_admin_module()
             string sql = "UPDATE tbl_user SET quota=" + std::to_string(quota) + " WHERE id=" + std::to_string(tuid) + " AND tomb=0";
             push_mysql(s, sql, [resp, tuid, quota, uname, ip, me](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 500, 500, "更新失败"); return; }
-                audit_log(me, uname, "admin_set_quota", "uid=" + std::to_string(tuid) + " quota=" + std::to_string(quota), ip);
+                audit_log(me, uname, AuditAction::AdminSetQuota, "uid=" + std::to_string(tuid) + " quota=" + std::to_string(quota), ip);
                 api::ok(resp, {{"uid", tuid}, {"quota", quota}}, "配额已更新");
             });
         });
@@ -166,7 +166,7 @@ void CloudiskServer::register_admin_module()
                     string sql = "UPDATE tbl_user SET role=0 WHERE id=" + std::to_string(tuid) + " AND tomb=0";
                     push_mysql(series_of(tc), sql, [resp, tuid, uname, ip, me](WFMySQLTask* t) {
                         if (!mysql_ok(t)) { api::fail(resp, 500, 500, "更新失败"); return; }
-                        audit_log(me, uname, "admin_set_role", "uid=" + std::to_string(tuid) + " role=0", ip);
+                        audit_log(me, uname, AuditAction::AdminSetRole, "uid=" + std::to_string(tuid) + " role=0", ip);
                         api::ok(resp, {{"uid", tuid}, {"role", 0}}, "角色已更新");
                     });
                 });
@@ -175,7 +175,7 @@ void CloudiskServer::register_admin_module()
             string sql = "UPDATE tbl_user SET role=1 WHERE id=" + std::to_string(tuid) + " AND tomb=0";
             push_mysql(s, sql, [resp, tuid, uname, ip, me](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 500, 500, "更新失败"); return; }
-                audit_log(me, uname, "admin_set_role", "uid=" + std::to_string(tuid) + " role=1", ip);
+                audit_log(me, uname, AuditAction::AdminSetRole, "uid=" + std::to_string(tuid) + " role=1", ip);
                 api::ok(resp, {{"uid", tuid}, {"role", 1}}, "角色已更新");
             });
         });
@@ -197,7 +197,7 @@ void CloudiskServer::register_admin_module()
             string sql = "UPDATE tbl_user SET disabled=" + std::to_string(disabled) + " WHERE id=" + std::to_string(tuid) + " AND tomb=0";
             push_mysql(s, sql, [resp, tuid, disabled, uname, ip, me](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 500, 500, "更新失败"); return; }
-                audit_log(me, uname, "admin_set_disabled", "uid=" + std::to_string(tuid) + " disabled=" + std::to_string(disabled), ip);
+                audit_log(me, uname, AuditAction::AdminSetDisabled, "uid=" + std::to_string(tuid) + " disabled=" + std::to_string(disabled), ip);
                 api::ok(resp, {{"uid", tuid}, {"disabled", disabled != 0}}, "已更新");
             });
         });

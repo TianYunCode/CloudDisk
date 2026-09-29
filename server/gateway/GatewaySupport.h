@@ -29,6 +29,7 @@
 #include "CryptoUtil.h"
 #include "User.h"
 #include "BlobStore.h"
+#include "AuditAction.h"   // 审计动作名常量 (前后端契约单一真源)
 
 // ----- 运行期配置 (启动时由 register_modules 从 Config 读取一次) -----------------
 extern std::string g_mysql_url;

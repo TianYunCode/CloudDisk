@@ -131,7 +131,7 @@ void CloudiskServer::register_share_module()
             push_mysql(series_of(t), ins, [resp, uid, username, ip, token, code, isFolder, name, expireDays, maxDownloads](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "创建失败"); return; }
                 g_metrics.shares_created++;
-                audit_log(uid, username, "share_create", (isFolder ? "文件夹: " : "文件: ") + name, ip);
+                audit_log(uid, username, AuditAction::ShareCreate, (isFolder ? "文件夹: " : "文件: ") + name, ip);
                 api::ok(resp, {
                     {"token", token}, {"code", code}, {"isFolder", isFolder},
                     {"name", name}, {"expireDays", expireDays}, {"maxDownloads", maxDownloads},

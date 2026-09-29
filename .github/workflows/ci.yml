@@ -88,6 +88,15 @@ jobs:
           export LD_LIBRARY_PATH=/usr/local/lib
           ./bin/unit_tests
 
+      - name: 前端纯逻辑单测 + 前后端审计契约测试
+        run: |
+          cd tests/e2e
+          for t in format_validate preview_validate validate_validate pager_validate \
+                   activity_validate bus_validate crumbs_validate audit_contract_validate; do
+            echo "--- $t ---"
+            node "$t.mjs"
+          done
+
       - name: 初始化数据库
         run: mysql -h 127.0.0.1 -uroot -p1234 test < scripts/init_db.sql
 

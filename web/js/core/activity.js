@@ -35,6 +35,9 @@
     '2fa_disable':      { label: '关闭两步验证', color: '#f59e0b', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>' },
     token_create:       { label: '创建令牌', color: '#0ea5e9', icon: '<path d="M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z"/>' },
     token_revoke:       { label: '吊销令牌', color: '#f59e0b', icon: '<path d="M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7z"/>' },
+    admin_set_role:     { label: '管理员·变更角色', color: '#0d9488', icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>' },
+    admin_set_quota:    { label: '管理员·调整配额', color: '#0d9488', icon: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>' },
+    admin_set_disabled: { label: '管理员·启用/禁用账户', color: '#0d9488', icon: '<circle cx="12" cy="12" r="10"/><path d="M4.9 4.9l14.2 14.2"/>' },
   };
 
   const FALLBACK = { label: '', color: '#94a3b8', icon: '<circle cx="12" cy="12" r="10"/>' };

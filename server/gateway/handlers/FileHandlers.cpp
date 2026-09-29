@@ -126,7 +126,7 @@ void CloudiskServer::register_fileupload_module()
                 g_metrics.uploads += (long long)uploaded.size();
                 g_metrics.upload_bytes += bytes;
                 LOG_INFO("用户 " << username << " 上传 " << uploaded.size() << " 个文件");
-                audit_log(uid, username, "file_upload",
+                audit_log(uid, username, AuditAction::FileUpload,
                           std::to_string(uploaded.size()) + " 个文件, " + std::to_string(bytes) + " 字节", ip);
                 api::ok(resp, {{"files", uploaded}}, "上传成功");
             });
@@ -334,7 +334,7 @@ void CloudiskServer::register_filelist_module()
             if (!mysql_ok(task)) { api::fail(resp, 409, 409, "重命名失败(该目录下可能已存在同名文件)"); return; }
             MySQLResultCursor c{ task->get_resp() };
             if (c.get_affected_rows() == 0) { api::fail(resp, 404, 404, "文件不存在"); return; }
-            audit_log(ruid, uname, "file_rename", "重命名为 " + newname, cip);
+            audit_log(ruid, uname, AuditAction::FileRename, "重命名为 " + newname, cip);
             api::ok(resp, {{"filename", newname}}, "已重命名");
         });
     });
@@ -772,7 +772,7 @@ void CloudiskServer::register_folder_module()
                 string np = parentPath + std::to_string(id) + "/";
                 string up = "UPDATE tbl_folder SET path=" + SqlUtil::quote(np) + " WHERE id=" + std::to_string(id);
                 push_mysql(series_of(t), up, [resp, id, name, parentId, uid, cuname, cip](WFMySQLTask*) {
-                    audit_log(uid, cuname, "folder_create", "新建文件夹 " + name, cip);
+                    audit_log(uid, cuname, AuditAction::FolderCreate, "新建文件夹 " + name, cip);
                     api::ok(resp, {{"id", id}, {"name", name}, {"parentId", parentId}}, "已创建");
                 });
             });

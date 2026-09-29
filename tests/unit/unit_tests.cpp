@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <set>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -20,6 +21,7 @@
 #include "FileType.h"
 #include "RateLimiter.h"
 #include "JsonUtil.h"
+#include "AuditAction.h"
 #include "BlobStore.h"
 #include "CryptoUtil.h"
 
@@ -143,6 +145,43 @@ static void test_jsonutil()
     CHECK(ids_csv({7}) == "7", "ids_csv 单元素无逗号");
 }
 
+static void test_audit_action()
+{
+    std::printf("== AuditAction (审计动作单一真源) ==\n");
+    // 汇总全部动作常量: 新增动作时必须在此登记, 否则契约测试无法覆盖
+    const std::vector<std::string> all = {
+        AuditAction::Register, AuditAction::Login, AuditAction::LoginFail,
+        AuditAction::LoginBlocked, AuditAction::Login2faFail, AuditAction::LoginDisabled,
+        AuditAction::PasswordChange, AuditAction::PasswordChangeFail,
+        AuditAction::ProfileUpdate, AuditAction::AvatarUpdate,
+        AuditAction::TwoFaEnable, AuditAction::TwoFaDisable,
+        AuditAction::TokenCreate, AuditAction::TokenRevoke,
+        AuditAction::FileUpload, AuditAction::FileDelete, AuditAction::FileRestore,
+        AuditAction::FileRename, AuditAction::FolderCreate, AuditAction::ShareCreate,
+        AuditAction::AdminSetRole, AuditAction::AdminSetQuota, AuditAction::AdminSetDisabled,
+    };
+    CHECK(all.size() == 23, "共 23 个动作常量 (与 AuditAction.h 一致)");
+
+    bool anyEmpty = false, anyBadChar = false;
+    for (const auto& a : all) {
+        if (a.empty()) anyEmpty = true;
+        for (char c : a) {
+            bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+            if (!ok) anyBadChar = true;
+        }
+    }
+    CHECK(!anyEmpty, "所有动作名非空");
+    CHECK(!anyBadChar, "所有动作名为 snake_case (小写/数字/下划线)");
+
+    std::set<std::string> uniq(all.begin(), all.end());
+    CHECK(uniq.size() == all.size(), "动作名无重复 (防止复制粘贴同值)");
+
+    // 关键值锚定: 前端 ACT_META 依赖这些字面值
+    CHECK(std::string(AuditAction::Login) == "login", "Login == login");
+    CHECK(std::string(AuditAction::TwoFaEnable) == "2fa_enable", "TwoFaEnable == 2fa_enable");
+    CHECK(std::string(AuditAction::AdminSetQuota) == "admin_set_quota", "AdminSetQuota == admin_set_quota");
+}
+
 static void test_crypto()
 {
     std::printf("== CryptoUtil ==\n");
@@ -163,6 +202,7 @@ int main()
     test_filetype();
     test_ratelimiter();
     test_jsonutil();
+    test_audit_action();
     test_crypto();
     std::printf("\n结果: %d 通过, %d 失败 (共 %d)\n", g_total - g_fail, g_fail, g_total);
     return g_fail == 0 ? 0 : 1;

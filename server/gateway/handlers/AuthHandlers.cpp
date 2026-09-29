@@ -83,7 +83,7 @@ void CloudiskServer::register_signup_module()
                           "SET t.role=1 WHERE NOT EXISTS (SELECT 1 FROM (SELECT id FROM tbl_user WHERE role=1 LIMIT 1) e)";
             WFMySQLTask* bt = WFTaskFactory::create_mysql_task(g_mysql_url, 1, [](WFMySQLTask*){});
             bt->get_req()->set_query(boot); bt->start();
-            audit_log(0, username, "register", "", client_ip(req));
+            audit_log(0, username, AuditAction::Register, "", client_ip(req));
             api::ok(resp, {{"username", username}}, "注册成功");
         } else {
             api::fail(resp, 409, 409, "用户名已存在");
@@ -106,7 +106,7 @@ void CloudiskServer::register_signin_module()
         string rlkey = username + "|" + ip;
         int wait = rl_blocked(rlkey);
         if (wait > 0) {
-            audit_log(0, username, "login_blocked", "剩余冷却 " + std::to_string(wait) + "s", ip);
+            audit_log(0, username, AuditAction::LoginBlocked, "剩余冷却 " + std::to_string(wait) + "s", ip);
             api::fail(resp, 429, 429, "尝试过于频繁, 请 " + std::to_string(wait) + " 秒后再试");
             return;
         }
@@ -121,7 +121,7 @@ void CloudiskServer::register_signin_module()
             auto failLogin = [&](const string& why) {
                 rl_on_fail(rlkey);
                 g_metrics.login_fails++;
-                audit_log(0, username, "login_fail", why, ip);
+                audit_log(0, username, AuditAction::LoginFail, why, ip);
                 api::fail(resp, 401, 401, "用户名或密码错误");
             };
             if (!cur.fetch_row(row)) { failLogin("no such user"); return; }
@@ -132,16 +132,16 @@ void CloudiskServer::register_signin_module()
             int disabled = (int)cell_ll(row[5]); int totpEnabled = (int)cell_ll(row[6]);
             string totpSecret = row[7].as_string(); int role = (int)cell_ll(row[8]);
 
-            if (disabled) { audit_log(u.id, username, "login_disabled", "", ip); api::fail(resp, 403, 403, "账户已被禁用"); return; }
+            if (disabled) { audit_log(u.id, username, AuditAction::LoginDisabled, "", ip); api::fail(resp, 403, 403, "账户已被禁用"); return; }
             if (CryptoUtil::hash_password(password, u.salt) != hash) { failLogin("bad password"); return; }
             if (totpEnabled) {
                 if (code.empty()) { api::fail(resp, 401, 4012, "需要两步验证码"); return; }
-                if (!totp_verify(totpSecret, code)) { rl_on_fail(rlkey); audit_log(u.id, username, "login_2fa_fail", "", ip); api::fail(resp, 401, 4012, "两步验证码错误"); return; }
+                if (!totp_verify(totpSecret, code)) { rl_on_fail(rlkey); audit_log(u.id, username, AuditAction::Login2faFail, "", ip); api::fail(resp, 401, 4012, "两步验证码错误"); return; }
             }
             rl_on_success(rlkey);
             g_metrics.logins++;
             string token = CryptoUtil::generate_token(u);
-            audit_log(u.id, username, "login", "", ip);
+            audit_log(u.id, username, AuditAction::Login, "", ip);
             api::ok(resp, {
                 {"token", token}, {"username", u.username}, {"createdAt", u.createdAt},
                 {"role", role}, {"need2fa", false},
@@ -221,7 +221,7 @@ void CloudiskServer::register_account_module()
         string uname = user.username, ip = client_ip(req); int uid = user.id;
         push_mysql(series, sql, [resp, nickname, email, uid, uname, ip](WFMySQLTask* t) {
             if (!mysql_ok(t)) { api::fail(resp, 500, 500, "更新失败"); return; }
-            audit_log(uid, uname, "profile_update", "", ip);
+            audit_log(uid, uname, AuditAction::ProfileUpdate, "", ip);
             api::ok(resp, {{"nickname", nickname}, {"email", email}}, "资料已更新");
         });
     });
@@ -244,7 +244,7 @@ void CloudiskServer::register_account_module()
             if (!c.fetch_row(row)) { api::fail(resp, 404, 404, "用户不存在"); return; }
             string hash = row[0].as_string(), salt = row[1].as_string();
             if (CryptoUtil::hash_password(oldPw, salt) != hash) {
-                audit_log(uid, uname, "password_change_fail", "", ip);
+                audit_log(uid, uname, AuditAction::PasswordChangeFail, "", ip);
                 api::fail(resp, 401, 401, "原密码错误"); return;
             }
             string newSalt = CryptoUtil::generate_salt();
@@ -253,7 +253,7 @@ void CloudiskServer::register_account_module()
                        + " WHERE id=" + std::to_string(uid);
             push_mysql(series_of(t), upd, [resp, uid, uname, ip](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "更新失败"); return; }
-                audit_log(uid, uname, "password_change", "", ip);
+                audit_log(uid, uname, AuditAction::PasswordChange, "", ip);
                 api::ok(resp, {}, "密码已修改, 请重新登录");
             });
         });
@@ -281,7 +281,7 @@ void CloudiskServer::register_account_module()
         string sql = "UPDATE tbl_user SET avatar_hash=" + SqlUtil::quote(tag) + " WHERE id=" + std::to_string(uid);
         push_mysql(series, sql, [resp, uid, uname, ip, tag](WFMySQLTask* t) {
             if (!mysql_ok(t)) { api::fail(resp, 500, 500, "更新失败"); return; }
-            audit_log(uid, uname, "avatar_update", "", ip);
+            audit_log(uid, uname, AuditAction::AvatarUpdate, "", ip);
             api::ok(resp, {{"avatar", tag}}, "头像已更新");
         });
     });
@@ -332,7 +332,7 @@ void CloudiskServer::register_account_module()
             string upd = "UPDATE tbl_user SET totp_enabled=1 WHERE id=" + std::to_string(uid);
             push_mysql(series_of(t), upd, [resp, uid, uname, ip](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "启用失败"); return; }
-                audit_log(uid, uname, "2fa_enable", "", ip);
+                audit_log(uid, uname, AuditAction::TwoFaEnable, "", ip);
                 api::ok(resp, {{"twoFactor", true}}, "两步验证已启用");
             });
         });
@@ -357,7 +357,7 @@ void CloudiskServer::register_account_module()
             string upd = "UPDATE tbl_user SET totp_enabled=0, totp_secret='' WHERE id=" + std::to_string(uid);
             push_mysql(series_of(t), upd, [resp, uid, uname, ip](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "关闭失败"); return; }
-                audit_log(uid, uname, "2fa_disable", "", ip);
+                audit_log(uid, uname, AuditAction::TwoFaDisable, "", ip);
                 api::ok(resp, {{"twoFactor", false}}, "两步验证已关闭");
             });
         });
@@ -429,7 +429,7 @@ void CloudiskServer::register_token_module()
             MySQLResultCursor c{ task->get_resp() };
             long long id = (long long)c.get_insert_id();
             g_tokens.put(hash, uid, uname, createdAt, expEpoch);
-            audit_log(uid, uname, "token_create", "name=" + name, ip);
+            audit_log(uid, uname, AuditAction::TokenCreate, "name=" + name, ip);
             api::ok(resp, {
                 {"id", id}, {"token", secret}, {"prefix", prefix},
                 {"name", name}, {"expiresDays", days},
@@ -483,7 +483,7 @@ void CloudiskServer::register_token_module()
             push_mysql(series_of(t), upd, [resp, hash, id, uid, uname, ip](WFMySQLTask* t2) {
                 if (!mysql_ok(t2)) { api::fail(resp, 500, 500, "吊销失败"); return; }
                 g_tokens.erase(hash);
-                audit_log(uid, uname, "token_revoke", "id=" + std::to_string(id), ip);
+                audit_log(uid, uname, AuditAction::TokenRevoke, "id=" + std::to_string(id), ip);
                 api::ok(resp, {{"id", id}}, "令牌已吊销");
             });
         });

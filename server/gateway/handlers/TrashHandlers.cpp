@@ -92,7 +92,7 @@ void CloudiskServer::register_trash_module()
             if (q.empty()) { api::ok(resp, {}, "无变化"); return; }
             push_mysql(s, q, [resp, uid, username, ip, nItems](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 500, 500, "删除失败"); return; }
-                audit_log(uid, username, "file_delete", std::to_string(nItems) + " 个项目移入回收站", ip);
+                audit_log(uid, username, AuditAction::FileDelete, std::to_string(nItems) + " 个项目移入回收站", ip);
                 api::ok(resp, {}, "已移入回收站");
             });
         };
@@ -181,7 +181,7 @@ void CloudiskServer::register_trash_module()
             if (q.empty()) { api::ok(resp, {}, "无变化"); return; }
             push_mysql(s, q, [resp, uid, username, ip, nItems](WFMySQLTask* t) {
                 if (!mysql_ok(t)) { api::fail(resp, 409, 409, "恢复失败(原目录可能已存在同名项)"); return; }
-                audit_log(uid, username, "file_restore", std::to_string(nItems) + " 个项目从回收站恢复", ip);
+                audit_log(uid, username, AuditAction::FileRestore, std::to_string(nItems) + " 个项目从回收站恢复", ip);
                 api::ok(resp, {}, "已恢复");
             });
         };
