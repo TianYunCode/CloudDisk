@@ -22,6 +22,7 @@
 #include "RateLimiter.h"
 #include "JsonUtil.h"
 #include "AuditAction.h"
+#include "FormatUtil.h"
 #include "BlobStore.h"
 #include "CryptoUtil.h"
 
@@ -182,6 +183,32 @@ static void test_audit_action()
     CHECK(std::string(AuditAction::AdminSetQuota) == "admin_set_quota", "AdminSetQuota == admin_set_quota");
 }
 
+static void test_formatutil()
+{
+    std::printf("== FormatUtil (人类可读字节, 与前端 humanSize 一致) ==\n");
+    using fmtutil::human_size;
+    CHECK(human_size(0) == "0 B", "0 -> 0 B");
+    CHECK(human_size(512) == "512 B", "512 -> 512 B");
+    CHECK(human_size(1023) == "1023 B", "1023 -> 1023 B (不足 1KB 不进位)");
+    CHECK(human_size(1024) == "1.0 KB", "1024 -> 1.0 KB");
+    CHECK(human_size(1536) == "1.5 KB", "1536 -> 1.5 KB");
+    CHECK(human_size(1048576) == "1.0 MB", "1MiB -> 1.0 MB");
+    CHECK(human_size(5242880) == "5.0 MB", "5MiB -> 5.0 MB");
+    CHECK(human_size(1073741824) == "1.0 GB", "1GiB -> 1.0 GB");
+    CHECK(human_size(1099511627776LL) == "1.0 TB", "1TiB -> 1.0 TB");
+    // >=100 时取整 (与前端 toFixed(0) 一致)
+    CHECK(human_size(150 * 1024) == "150 KB", "150KiB -> 150 KB (>=100 取整)");
+    CHECK(human_size(102400) == "100 KB", "100KiB -> 100 KB (边界取整)");
+    CHECK(human_size(101376) == "99.0 KB", "99KiB -> 99.0 KB (<100 保留 1 位)");
+    // 超过 TB 不再进位, 停在 TB
+    CHECK(human_size(10995116277760LL) == "10.0 TB", "10TiB -> 10.0 TB (上限 TB, <100 保留 1 位)");
+    CHECK(human_size(109951162777600LL) == "100 TB", "100TiB -> 100 TB");
+    // 负数按「符号 + 幅值」输出, 而非抹成 0 (差值型指标可能为负)
+    CHECK(human_size(-1) == "-1 B", "-1 -> -1 B");
+    CHECK(human_size(-1536) == "-1.5 KB", "-1536 -> -1.5 KB");
+    CHECK(human_size(-1048576) == "-1.0 MB", "-1MiB -> -1.0 MB");
+}
+
 static void test_crypto()
 {
     std::printf("== CryptoUtil ==\n");
@@ -203,6 +230,7 @@ int main()
     test_ratelimiter();
     test_jsonutil();
     test_audit_action();
+    test_formatutil();
     test_crypto();
     std::printf("\n结果: %d 通过, %d 失败 (共 %d)\n", g_total - g_fail, g_fail, g_total);
     return g_fail == 0 ? 0 : 1;

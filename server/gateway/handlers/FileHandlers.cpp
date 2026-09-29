@@ -55,6 +55,7 @@ using namespace AmqpClient;
 
 // 共享支撑层: 运行期配置 + 通用工具 (定义见 GatewaySupport.cpp)
 #include "GatewaySupport.h"
+#include "FormatUtil.h"   // 配额提示的人类可读字节格式化 (与前端 humanSize 一致)
 
 // ----- 上传 (多文件) -----------------------------------------------------------
 void CloudiskServer::register_fileupload_module()
@@ -95,8 +96,8 @@ void CloudiskServer::register_fileupload_module()
             }
             if (used + incoming > quota) {
                 api::fail(resp, 413, 413, "存储空间不足: 剩余 "
-                    + std::to_string(quota > used ? quota - used : 0)
-                    + " 字节, 本次需 " + std::to_string(incoming) + " 字节");
+                    + fmtutil::human_size(quota > used ? quota - used : 0)
+                    + ", 本次需 " + fmtutil::human_size(incoming));
                 return;
             }
             // 配额通过: 写 blob + 构建元数据
@@ -161,7 +162,7 @@ void CloudiskServer::register_fileupload_module()
             }
             if (used + size > quota) {
                 api::fail(resp, 413, 413, "存储空间不足: 剩余 "
-                    + std::to_string(quota > used ? quota - used : 0) + " 字节");
+                    + fmtutil::human_size(quota > used ? quota - used : 0));
                 return;
             }
             string sql = "REPLACE INTO tbl_file (uid, parent_id, filename, hashcode, size) VALUES ("
@@ -395,7 +396,7 @@ void CloudiskServer::register_chunk_upload_module()
             long long used = 0, quota = g_user_quota;
             if (mysql_ok(task)) { MySQLResultCursor cur{ task->get_resp() }; std::vector<MySQLCell> row; if (cur.fetch_row(row)) { quota = cell_ll(row[0]); used = (long long)row[1].as_ulonglong(); } }
             if (used + size > quota) {
-                api::fail(resp, 413, 413, "存储空间不足: 剩余 " + std::to_string(quota > used ? quota - used : 0) + " 字节"); return;
+                api::fail(resp, 413, 413, "存储空间不足: 剩余 " + fmtutil::human_size(quota > used ? quota - used : 0)); return;
             }
             SeriesWork* s = series_of(task);
             if (blobExists) {

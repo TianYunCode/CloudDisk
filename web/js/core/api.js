@@ -161,12 +161,22 @@
   }
 
   // ---- 工具函数 ----
+  // 与后端 server/util/FormatUtil.h 的 human_size() 严格一致
+  // (由 tests/e2e/humansize_contract_validate.mjs 做跨语言逐值校验)。
+  // 负数按「符号 + 幅值」输出, 而非抹成 0: 差值型指标 (如去重节省) 可能为负。
   function humanSize(bytes) {
     bytes = Number(bytes) || 0;
-    if (bytes < 1024) return bytes + ' B';
-    const u = ['KB', 'MB', 'GB', 'TB']; let i = -1;
-    do { bytes /= 1024; i++; } while (bytes >= 1024 && i < u.length - 1);
-    return bytes.toFixed(bytes >= 100 ? 0 : 1) + ' ' + u[i];
+    const neg = bytes < 0;
+    let v = Math.abs(bytes);
+    let body;
+    if (v < 1024) {
+      body = v + ' B';
+    } else {
+      const u = ['KB', 'MB', 'GB', 'TB']; let i = -1;
+      do { v /= 1024; i++; } while (v >= 1024 && i < u.length - 1);
+      body = v.toFixed(v >= 100 ? 0 : 1) + ' ' + u[i];
+    }
+    return (neg ? '-' : '') + body;
   }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -179,7 +189,10 @@
     toggle() { const n = this.get() === 'dark' ? 'light' : 'dark'; this.apply(n); return n; },
     init()   { this.apply(this.get()); },
   };
-  Theme.init();
+  // 仅在有 DOM 的环境下自动应用主题 (Node 下加载本模块做纯函数测试时跳过)
+  if (typeof document !== 'undefined') Theme.init();
 
-  global.CV = { Store, Api, toast, humanSize, escapeHtml, Theme };
-})(window);
+  const exports_ = { Store, Api, toast, humanSize, escapeHtml, Theme };
+  if (global) global.CV = exports_;
+  if (typeof module !== 'undefined' && module.exports) module.exports = exports_;
+})(typeof window !== 'undefined' ? window : null);
