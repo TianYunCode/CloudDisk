@@ -159,6 +159,8 @@ docker compose up -d --build
 
 完整接口见 **[docs/API.md](docs/API.md)**。所有响应统一为 `{"code":0,"message":"ok","data":...}`（`code==0` 成功），受保护接口需 `Authorization: Bearer <token>`。
 
+分层架构、GoF 设计模式落位与迁移计划见 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**。
+
 ---
 
 ## 🔒 安全说明
@@ -173,15 +175,28 @@ docker compose up -d --build
 
 ## 🧪 测试
 
+**一键运行全部 4 层测试**（推荐；任一失败即非零退出，可作 pre-push 门禁）：
+
+```bash
+bash tests/run_all.sh           # 全部: C++单元 + 前端纯逻辑/契约 + 集成 + 浏览器e2e
+bash tests/run_all.sh --fast    # 仅前两层 (秒级, 无需启动任何服务)
+bash tests/run_all.sh --no-e2e  # 跳过浏览器 e2e
+E2E_SPACING=5 bash tests/run_all.sh   # Chromium 连续启动偶发抖动时, 加大套件间隔
+```
+
+也可分层单独运行：
+
 ```bash
 ./bin/unit_tests                   # 61 项纯逻辑单元测试（SqlUtil/Totp/FileType/RateLimiter/JsonUtil/AuditAction/BlobStore/CryptoUtil，无需服务）
 bash tests/integration.sh          # 173 项 API/边界/安全集成测试（含令牌/WebDAV/指标/收藏/搜索/版本/统计/标签/活动）
 ```
 
-浏览器端到端测试（如环境可下载 Chromium）见 `tests/e2e/`：
-`qr_validate`(11) · `format_validate`(12) · `preview_validate`(19) · `validate_validate`(17) · `pager_validate`(13) · `activity_validate`(10) · `bus_validate`(13) · `crumbs_validate`(15) · `audit_contract_validate`(9，前后端审计动作契约) · `route_contract_validate`(7，前后端 API 路由契约) · `errcode_contract_validate`(8，前后端错误码契约) · `e2e_p1`(11) · `e2e_share`(12) · `e2e_preview`(9) · `e2e_upload`(6) · `e2e_account`(11) · `e2e_devtoken`(7) · `e2e_fav`(5) · `e2e_search`(6) · `e2e_version`(7) · `e2e_stats`(8) · `e2e_tags`(7) · `e2e_activity`(7) · `e2e`(12 综合冒烟)。
+`tests/e2e/` 下的 Node 套件（纯逻辑 + 前后端契约守卫 + Playwright 浏览器端到端）：
+`qr_validate`(11) · `format_validate`(12) · `preview_validate`(19) · `validate_validate`(17) · `pager_validate`(13) · `activity_validate`(10) · `bus_validate`(13) · `crumbs_validate`(15) · `audit_contract_validate`(9，审计动作契约) · `route_contract_validate`(9，API 路由 + 文档契约) · `errcode_contract_validate`(8，错误码契约) · `e2e_p1`(11) · `e2e_share`(12) · `e2e_preview`(9) · `e2e_upload`(6) · `e2e_account`(11) · `e2e_devtoken`(7) · `e2e_fav`(5) · `e2e_search`(6) · `e2e_version`(7) · `e2e_stats`(8) · `e2e_tags`(7) · `e2e_activity`(7) · `e2e`(12 综合冒烟)。
 
-CI（`.github/workflows/ci.yml`）会在推送/PR 时自动起中间件、编译依赖与项目，并依次跑单元测试与集成测试。
+> **三道前后端契约守卫**（`audit_contract` / `route_contract` / `errcode_contract`）静态比对 C++ 源码与前端 JS，自动防止「后端新增动作/路由/错误码但前端与文档忘了跟进」这类漂移；三者均经过负向验证（人为注入错误即被精确报出）。
+
+CI（`.github/workflows/ci.yml`）会在推送/PR 时自动起中间件、编译依赖与项目，并依次跑 C++ 单元测试、10 个前端纯逻辑/契约套件与集成测试。
 
 ---
 

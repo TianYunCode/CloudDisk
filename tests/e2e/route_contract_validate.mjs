@@ -1,10 +1,11 @@
 /* =============================================================================
    route_contract_validate.mjs —— 前后端 API 路由契约测试
 
-   校验三条不变量:
+   校验四条不变量:
      1. 前端调用的每个路径, 后端都已注册  → 防止拼写漂移导致的静默 404
      2. 后端注册的每个 /api 路由, 前端都有调用方 → 防止死端点堆积
      3. 后端非 /api 路由只能是已知的页面/运维端点白名单
+     4. 每条 /api 路由都已在 docs/API.md 中记录 → 防止文档漂移
 
    数据来源:
      · 后端: 扫描 server/gateway 下所有 .cpp/.h 中的 .GET/.POST/.PUT/.DELETE/.PATCH("...")
@@ -91,6 +92,15 @@ const missingAllow = NON_API_ALLOWLIST.filter(r => !backend.has(r));
 check(missingAllow.length === 0,
   '白名单端点均确实存在',
   missingAllow.length ? '缺失: ' + missingAllow.join(', ') : '');
+
+// ---- 不变量 4: 每条 /api 路由都已在 docs/API.md 中记录 (防文档漂移) ----
+let apiDoc = '';
+try { apiDoc = readFileSync(join(ROOT, 'docs', 'API.md'), 'utf8'); } catch (e) { /* 下面断言会报错 */ }
+check(apiDoc.length > 0, 'docs/API.md 存在且非空');
+const undocumented = backendApi.filter(r => !apiDoc.includes(r));
+check(undocumented.length === 0,
+  '每条 /api 路由均已在 docs/API.md 中记录 (无文档漂移)',
+  undocumented.length ? '未文档化: ' + undocumented.join(', ') : '');
 
 // ---- 守卫自检 ----
 check(!backend.has('/api/this_route_does_not_exist'),
