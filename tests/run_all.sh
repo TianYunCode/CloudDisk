@@ -55,6 +55,7 @@ NODE_SUITES=(
   activity_validate bus_validate crumbs_validate
   audit_contract_validate route_contract_validate errcode_contract_validate
   config_contract_validate humansize_contract_validate validate_contract_validate
+  sha256_contract_validate
   qr_validate
 )
 for t in "${NODE_SUITES[@]}"; do

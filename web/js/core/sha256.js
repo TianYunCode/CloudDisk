@@ -1,7 +1,15 @@
 /* =============================================================================
    sha256.js — 纯 JS SHA-256 (作为 crypto.subtle 不可用时的回退)
    用法: window.sha256hex(Uint8Array) -> 64 位十六进制字符串
+         window.hashFile(File) -> Promise<hex>  (安全上下文优先用 WebCrypto)
    实现参考公共领域算法 (FIPS 180-4)。
+
+   注意: 经 http://<局域网 IP>:8888 访问时页面**不是**安全上下文, WebCrypto 不可用,
+   因此本文件的纯 JS 实现就是实际生效路径 —— 其正确性由
+   tests/e2e/sha256_contract_validate.mjs 对拍 Node 权威实现 (NIST 向量 + 填充边界)
+   永久守护; 秒传/去重依赖哈希完全一致, 任何偏差都会导致内容寻址错乱。
+   · 浏览器: window.sha256hex / window.hashFile / window.CV.Sha256
+   · Node  : module.exports = { sha256hex, hashFile }
    ============================================================================= */
 (function (global) {
   'use strict';
@@ -82,6 +90,14 @@
     return sha256hex(new Uint8Array(buf));
   }
 
-  global.sha256hex = sha256hex;
-  global.hashFile = hashFile;
-})(window);
+  // 浏览器: 保持既有的裸全局 (app.js 使用 window.hashFile), 同时挂到 CV 下便于统一访问
+  // Node   : module.exports, 供契约测试对拍 (tests/e2e/sha256_contract_validate.mjs)
+  const Sha256 = { sha256hex, hashFile };
+  if (global) {
+    global.sha256hex = sha256hex;
+    global.hashFile = hashFile;
+    global.CV = global.CV || {};
+    global.CV.Sha256 = Sha256;
+  }
+  if (typeof module !== 'undefined' && module.exports) module.exports = Sha256;
+})(typeof window !== 'undefined' ? window : null);
