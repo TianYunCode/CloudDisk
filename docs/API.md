@@ -17,7 +17,7 @@
 ### POST `/api/auth/register` — 注册
 Body（JSON）：`{ "username": "alice", "password": "secret123" }`
 - 用户名：3–32 位，字母/数字/`_`/`-`
-- 密码：6–64 位
+- 密码：6–64 个**字符**（按 Unicode 码点计数，非字节数；中文/emoji 同样每字计 1）；原始长度另受 256 字节上限约束
 
 | 状态 | 含义 |
 |---|---|

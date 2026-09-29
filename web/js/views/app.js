@@ -1246,7 +1246,9 @@
   };
   $('changePwBtn').onclick = async () => {
     const oldPw = $('oldPw').value, newPw = $('newPw').value, newPw2 = $('newPw2').value;
-    if (newPw.length < 6) { toast('新密码至少 6 位', 'warn'); return; }
+    // 复用与后端对齐的校验规则 (按 Unicode 码点计数, 而非 UTF-16 码元):
+    // 直接写 newPw.length < 6 会让 "🔒🔒🔒" (3 个字符/6 个码元) 蒙混过关
+    if (!window.CV.Validate.validPassword(newPw)) { toast('新密码需为 6-64 个字符', 'warn'); return; }
     if (newPw !== newPw2) { toast('两次输入的新密码不一致', 'warn'); return; }
     try {
       await Api.passwordChange(oldPw, newPw);

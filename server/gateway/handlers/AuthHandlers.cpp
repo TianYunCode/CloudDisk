@@ -66,7 +66,7 @@ void CloudiskServer::register_signup_module()
         string password = json_str(in, "password");
 
         if (!SqlUtil::valid_username(username)) { api::fail(resp, 400, 400, "用户名需为 3-32 位字母/数字/下划线/中划线"); return; }
-        if (!SqlUtil::valid_password(password)) { api::fail(resp, 400, 400, "密码长度需为 6-64 位"); return; }
+        if (!SqlUtil::valid_password(password)) { api::fail(resp, 400, 400, "密码长度需为 6-64 个字符"); return; }
 
         string ip; unsigned short port = 0;
         if (!discover_userservice(ip, port)) { api::fail(resp, 503, 503, "用户服务不可用"); return; }
@@ -234,7 +234,7 @@ void CloudiskServer::register_account_module()
         if (!parse_body(req, in)) { api::fail(resp, 400, 400, "请求体格式错误"); return; }
         string oldPw = json_str(in, "oldPassword");
         string newPw = json_str(in, "newPassword");
-        if (!SqlUtil::valid_password(newPw)) { api::fail(resp, 400, 400, "新密码长度需为 6-64 位"); return; }
+        if (!SqlUtil::valid_password(newPw)) { api::fail(resp, 400, 400, "新密码长度需为 6-64 个字符"); return; }
         int uid = user.id; string uname = user.username, ip = client_ip(req);
         string sel = "SELECT password, salt FROM tbl_user WHERE id=" + std::to_string(uid);
         push_mysql(series, sel, [resp, oldPw, newPw, uid, uname, ip](WFMySQLTask* t) {

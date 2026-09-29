@@ -48,10 +48,27 @@ inline bool valid_username(const std::string& u)
     return true;
 }
 
-// 密码强度: 6-64 位 (可按需加强)。
+// UTF-8 码点数 (非字节数)。统计非延续字节 (0b10xxxxxx) 即得码点数;
+// 对畸形序列也给出稳定计数, 不会崩溃或产生未定义行为。
+// 用途: 密码长度按"字符数"而非"字节数"衡量, 与前端 [...p].length 语义一致。
+inline size_t utf8_length(const std::string& s)
+{
+    size_t n = 0;
+    for (unsigned char c : s) {
+        if ((c & 0xC0) != 0x80) ++n;
+    }
+    return n;
+}
+
+// 密码强度: 6-64 个**字符** (Unicode 码点), 可按需加强。
+// 注意: 必须按码点而非字节计数 —— 否则 2 个汉字 (6 字节) 就能通过"6 位"下限,
+// 而 33 个汉字 (99 字节) 又会被上限误拒, 且与前端判定相反。
+// 另设 256 字节的原始长度上限, 防止超长输入造成的无谓开销。
 inline bool valid_password(const std::string& p)
 {
-    return p.size() >= 6 && p.size() <= 64;
+    if (p.size() > 256) return false;
+    const size_t chars = utf8_length(p);
+    return chars >= 6 && chars <= 64;
 }
 
 // 十六进制哈希白名单 (sha256 = 64 hex)。

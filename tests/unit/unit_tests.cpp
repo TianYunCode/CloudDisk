@@ -45,6 +45,29 @@ static void test_sqlutil()
     CHECK(SqlUtil::to_uint("999", -1, 100) == 100, "to_uint 上限截断");
     CHECK(SqlUtil::to_uint("abc", 7, 100) == 7, "to_uint 非法回退默认");
     CHECK(SqlUtil::to_uint("", 5, 100) == 5, "to_uint 空串回退默认");
+
+    // utf8_length: 按 Unicode 码点计数 (非字节数), 与前端 charLength 一致
+    CHECK(SqlUtil::utf8_length("") == 0, "utf8_length 空串 = 0");
+    CHECK(SqlUtil::utf8_length("abcdef") == 6, "utf8_length ASCII = 字节数");
+    CHECK(SqlUtil::utf8_length("\xE5\xAD\x97") == 1, "utf8_length 单个汉字 = 1 (非 3 字节)");
+    CHECK(SqlUtil::utf8_length("\xF0\x9F\x94\x92") == 1, "utf8_length 单个 emoji = 1 (非 4 字节)");
+    CHECK(SqlUtil::utf8_length("\xE5\xAF\x86\xE7\xA0\x81") == 2, "utf8_length \"密码\" = 2 (非 6 字节)");
+
+    // valid_password: 6-64 个字符 (码点), 修复前按字节计数会放过 2 个汉字
+    CHECK(!SqlUtil::valid_password("12345"), "5 字符密码被拒");
+    CHECK(SqlUtil::valid_password("123456"), "6 字符密码合法 (下边界)");
+    CHECK(SqlUtil::valid_password(std::string(64, 'x')), "64 字符密码合法 (上边界)");
+    CHECK(!SqlUtil::valid_password(std::string(65, 'x')), "65 字符密码被拒");
+    CHECK(!SqlUtil::valid_password("\xE5\xAF\x86\xE7\xA0\x81"), "\"密码\"(2 字符/6 字节) 不再被误判为合法");
+    CHECK(SqlUtil::valid_password("\xE4\xB8\xAD\xE6\x96\x87\xE5\xAF\x86\xE7\xA0\x81\xE5\x85\xAD\xE4\xB8\xAA\xE5\xAD\x97"),
+          "恰好 6 个汉字合法");
+    std::string many_hanzi;
+    for (int i = 0; i < 65; ++i) many_hanzi += "\xE5\xAD\x97";   // 65 个汉字 = 195 字节
+    CHECK(!SqlUtil::valid_password(many_hanzi), "65 个汉字被拒 (码点上限)");
+    std::string ok_hanzi;
+    for (int i = 0; i < 64; ++i) ok_hanzi += "\xE5\xAD\x97";     // 64 个汉字 = 192 字节
+    CHECK(SqlUtil::valid_password(ok_hanzi), "64 个汉字合法 (码点上限内, 虽 192 字节)");
+    CHECK(!SqlUtil::valid_password(std::string(300, 'a')), "300 字节超长密码被拒 (原始长度上限)");
 }
 
 static void test_totp()
